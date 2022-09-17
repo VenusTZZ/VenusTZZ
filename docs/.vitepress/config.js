@@ -1,11 +1,17 @@
 export default {
+  title: 'Venus', //标题
+  titleTemplate: 'Blog', //标题模板
+  description: 'XXG-BLOG', //描述
+  lastUpdated: true, //开启上次更新时间
+  markdown: {
+    theme: 'nord',
+  },
   themeConfig: {
-    title: 'VVVenus', //标题
-    titleTemplate: 'Blog', //标题模板
     siteTitle: 'VenusBlog',
     logo: '/favicon.svg',
     head: [['link', { rel: 'icon', href: '/favicon.ico' }]],
     description: 'Venus的博客',
+    themeConfig: {},
     nav: [
       { text: '主页', link: '/' },
       {
@@ -61,6 +67,10 @@ export default {
     footer: {
       message: 'Released under the MIT License.',
       copyright: 'Copyright © 2022-present Venus',
+    },
+    carbonAds: {
+      code: 'your-carbon-code',
+      placement: 'your-carbon-placement',
     },
   },
 }
