@@ -19,17 +19,12 @@ features:
     title: Fluent Emoji Maker
     details: 创造一个表情
   - icon: 🖖
-    title: Power of Vue meets Markdown
-    details: Lorem ipsum...
-  - icon: 🛠️
-    title: Simple and minimal, always
-    details: Lorem ipsum...
+    title: NLP -- Knowledge Graph
+    details: --
 ---
 <style>
     :root{
         --vp-home-hero-name-color:transparent;
-        --vp-home-hero-name-background:-webkit-linear-gradient(120deg, #bd34fe,#41d1ff)
-        /* --vp-home-hero-text-color:transparent;
-        --vp-home-hero-text-background:-webkit-linear-gradient(120deg, #bd34fe,#41d1ff) */
+        --vp-home-hero-name-background:-webkit-linear-gradient(120deg, #bd34fe,#41d1ff,#7fecad)
     }
 </style>
