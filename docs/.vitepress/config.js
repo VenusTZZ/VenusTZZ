@@ -47,8 +47,8 @@ export default {
           text: '课题相关',
           items: [
             // This shows `/config/index.md` page.
-            { text: 'page1', link: '/classwork/' },
-            { text: 'page2', link: '/classwork/page2.md' }, // /config/index.md
+            { text: '故障推荐', link: '/classwork/' },
+            { text: '已经做的事', link: '/classwork/page2.md' }, // /config/index.md
           ],
         },
       ],
