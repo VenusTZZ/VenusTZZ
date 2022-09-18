@@ -23,3 +23,8 @@ import torch
 ```
 ## 4. 其他思路
 1. 考虑给输入描述添加物品特征，然后用卷积神经网络进行训练。也就是进行协同过滤。
+## 5. 问题
+1. Transformers的bert可以自定义词汇表吗？或者可以手动添加一些词汇。如果可以，那么就可以用自己的词汇表进行训练。
+2. Transformers的tokenizer可以采用one-hot或者multi-hot编码吗?
+3. Transformers的tokenizer可以自定义词汇表吗？
+
