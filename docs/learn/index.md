@@ -12,8 +12,6 @@
 
 [ 去看看:eyes:?](https://emoji.vvvenus.website/)
 
-部署工具：[Vercel](https://vercel.com/)
-
 github仓库：[Emoji Maker](https://github.com/VenusTZZ/fluent-emoji-leaner)
 
 ### 视频参考

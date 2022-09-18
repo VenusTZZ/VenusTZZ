@@ -6,8 +6,6 @@
 
 [ 去看看:eyes:?](https://patientdashboard.vvvenus.website/)
 
-部署工具：[Vercel](https://vercel.com/)
-
 github仓库：[PatientDashboard](https://github.com/VenusTZZ/vue2-vuetify-patientdashboard)
 
 ### 视频参考

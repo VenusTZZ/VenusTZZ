@@ -35,6 +35,7 @@ export default {
             // This shows `/config/index.md` page.
             { text: 'Fluent emoji Maker', link: '/learn/' },
             { text: 'patientdashboard', link: '/learn/page2.md' }, // /config/index.md
+            { text: '素材使用', link: '/learn/Element.md' },
           ],
         },
       ],
