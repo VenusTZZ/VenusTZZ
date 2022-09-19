@@ -20,6 +20,7 @@ export default {
           { text: '习作', link: '/learn/', activeMatch: '/learn/' },
           { text: '课题', link: '/classwork/', activeMatch: '/classwork/' },
           { text: 'LeetCode', link: '/leetcode/', activeMatch: '/leetcode/' },
+          { text: 'entertainment', link: '/entertainment/', activeMatch: '/entertainment/' },
         ],
       },
     ],
@@ -60,6 +61,15 @@ export default {
             // This shows `/config/index.md` page.
             { text: 'page1', link: '/leetcode/' },
             { text: 'page2', link: '/leetcode/page2.md' }, // /config/index.md
+          ],
+        },
+      ],
+      '/entertainment/': [
+        {
+          text: 'entertainment',
+          items: [
+            // This shows `/config/index.md` page.
+            { text: '鹿神', link: '/entertainment/' },
           ],
         },
       ],
