@@ -35,7 +35,7 @@ export default {
           items: [
             // This shows `/config/index.md` page.
             { text: 'Fluent emoji Maker', link: '/learn/' },
-            { text: 'patientdashboard', link: '/learn/page2.md' }, // /config/index.md
+            { text: 'PatientDashboard', link: '/learn/page2.md' }, // /config/index.md
             { text: '素材使用', link: '/learn/Element.md' },
           ],
         },
@@ -46,6 +46,8 @@ export default {
       '/classwork/': [
         {
           text: '课题相关',
+          collapsible: true,
+          collapsed: false,
           items: [
             // This shows `/config/index.md` page.
             { text: '已经做的事', link: '/classwork/' },
@@ -57,6 +59,8 @@ export default {
       '/leetcode/': [
         {
           text: 'LeetCode',
+          collapsible: true,
+          collapsed: false,
           items: [
             // This shows `/config/index.md` page.
             { text: 'page1', link: '/leetcode/' },
@@ -66,10 +70,21 @@ export default {
       ],
       '/entertainment/': [
         {
-          text: 'entertainment',
+          text: '首页',
+          collapsible: true,
+          collapsed: false,
           items: [
             // This shows `/config/index.md` page.
-            { text: '鹿神', link: '/entertainment/' },
+            { text: '介绍', link: '/entertainment/' },
+          ],
+        },
+        {
+          text: 'section1',
+          collapsible: true,
+          collapsed: false,
+          items: [
+            // This shows `/config/index.md` page.
+            { text: '鹿神', link: '/entertainment/t2-p1.md' },
           ],
         },
       ],
