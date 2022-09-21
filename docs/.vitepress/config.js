@@ -20,7 +20,7 @@ export default {
           { text: '习作', link: '/learn/', activeMatch: '/learn/' },
           { text: '课题', link: '/classwork/', activeMatch: '/classwork/' },
           { text: 'LeetCode', link: '/leetcode/', activeMatch: '/leetcode/' },
-          { text: 'entertainment', link: '/entertainment/', activeMatch: '/entertainment/' },
+          { text: 'Entertainment', link: '/entertainment/', activeMatch: '/entertainment/' },
         ],
       },
     ],
@@ -84,7 +84,8 @@ export default {
           collapsed: false,
           items: [
             // This shows `/config/index.md` page.
-            { text: '鹿神', link: '/entertainment/t2-p1.md' },
+            { text: '文弱书生', link: '/entertainment/t2-p1.md' },
+            { text: 'Lost Paradise', link: '/entertainment/t2-p2.md' },
           ],
         },
       ],
