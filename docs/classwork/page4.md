@@ -1,4 +1,4 @@
-# Bert-BiLstm-crf  做命名实体识别
+# 只用Bert  做命名实体识别
 
 - 通过Huggingface的transformers库，使用bert模型做命名实体识别
 - 参考：[# 1](https://blog.csdn.net/weixin_53280379/article/details/125355146),[# 2](https://zhuanlan.zhihu.com/p/372989614?utm_id=0)
@@ -260,7 +260,6 @@ if __name__ == '__main__':
 """
 @author:Venus
 @file:Huggingface-BiLstm-crf-NER.py
-@time:2022/09/22/20：20
 """
 # 导入相关库
 import re

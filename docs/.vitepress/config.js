@@ -53,7 +53,8 @@ export default {
             { text: '已经做的事', link: '/classwork/' },
             { text: '故障推荐', link: '/classwork/page2.md' }, // /config/index.md
             { text: '知识图谱故障推荐', link: '/classwork/page3.md' },
-            { text: '实体识别', link: '/classwork/page4.md' },
+            { text: 'Bert实体识别', link: '/classwork/page4.md' },
+            { text: 'Bert-BiLSTM-crf实体识别', link: '/classwork/page5.md' },
           ],
         },
       ],
