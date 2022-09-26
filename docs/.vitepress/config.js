@@ -1,8 +1,12 @@
-export default {
+import { defineConfig } from 'vitepress'
+export default defineConfig({
   title: 'Venus', //标题
   titleTemplate: 'Blog', //标题模板
   description: 'XXG-BLOG', //描述
   lastUpdated: true, //开启上次更新时间
+  vue: {
+    reactivityTransform: true,
+  },
   markdown: {
     theme: 'nord',
   },
@@ -121,4 +125,4 @@ export default {
       placement: 'your-carbon-placement',
     },
   },
-}
+})
