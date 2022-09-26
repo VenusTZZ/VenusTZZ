@@ -14,7 +14,6 @@ export default defineConfig({
   themeConfig: {
     siteTitle: 'VenusBlog',
     logo: '/favicon.svg',
-
     description: 'Venus的博客',
     themeConfig: {},
     nav: [
@@ -93,27 +92,27 @@ export default defineConfig({
           ],
         },
       ],
-      '/entertainment/': [
-        {
-          text: '首页',
-          collapsible: true,
-          collapsed: false,
-          items: [
-            // This shows `/config/index.md` page.
-            { text: '介绍', link: '/entertainment/' },
-          ],
-        },
-        {
-          text: 'section1',
-          collapsible: true,
-          collapsed: false,
-          items: [
-            // This shows `/config/index.md` page.
-            { text: '文弱书生', link: '/entertainment/t2-p1.md' },
-            { text: 'Lost Paradise', link: '/entertainment/t2-p2.md' },
-          ],
-        },
-      ],
+      // '/entertainment/': [
+      //   {
+      //     text: '首页',
+      //     collapsible: true,
+      //     collapsed: false,
+      //     items: [
+      //       // This shows `/config/index.md` page.
+      //       { text: '介绍', link: '/entertainment/' },
+      //     ],
+      //   },
+      //   {
+      //     text: 'section1',
+      //     collapsible: true,
+      //     collapsed: false,
+      //     items: [
+      //       // This shows `/config/index.md` page.
+      //       { text: '文弱书生', link: '/entertainment/t2-p1.md' },
+      //       { text: 'Lost Paradise', link: '/entertainment/t2-p2.md' },
+      //     ],
+      //   },
+      // ],
     },
     socialLinks: [{ icon: 'github', link: 'https://github.com/VenusTZZ' }],
     base: './',
