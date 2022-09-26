@@ -14,19 +14,37 @@ export default {
     themeConfig: {},
     nav: [
       { text: '主页', link: '/' },
-      {
-        text: '分类',
-        items: [
-          { text: '习作', link: '/learn/', activeMatch: '/learn/' },
-          { text: '课题', link: '/classwork/', activeMatch: '/classwork/' },
-          { text: 'LeetCode', link: '/leetcode/', activeMatch: '/leetcode/' },
-          { text: 'Entertainment', link: '/entertainment/', activeMatch: '/entertainment/' },
-        ],
-      },
+      { text: '计划', link: '/Myplan/' },
+      { text: '习作', link: '/learn/' },
+      { text: '课题', link: '/classwork/' },
+      { text: 'LeetCode', link: '/leetcode/' },
+      { text: 'Entertainment', link: '/entertainment/' },
+      // {
+      //   text: '分类',
+      //   items: [
+      //     { text: '习作', link: '/learn/', activeMatch: '/learn/' },
+      //     { text: '课题', link: '/classwork/', activeMatch: '/classwork/' },
+      //     { text: 'LeetCode', link: '/leetcode/', activeMatch: '/leetcode/' },
+      //     { text: 'Entertainment', link: '/entertainment/', activeMatch: '/entertainment/' },
+      //   ],
+      // },
     ],
     sidebar: {
       // This sidebar gets displayed when user is
       // under `guide` directory.
+      // '/Myplan/': [
+      //   {
+      //     text: '计划',
+      //     collapsible: true,
+      //     collapsed: false,
+      //     items: [
+      //       // This shows `/config/index.md` page.
+      //       { text: 'Fluent emoji Maker', link: '/learn/' },
+      //       { text: 'PatientDashboard', link: '/learn/page2.md' }, // /config/index.md
+      //       { text: '素材使用', link: '/learn/Element.md' },
+      //     ],
+      //   },
+      // ],
       '/learn/': [
         {
           text: '我的习作',
