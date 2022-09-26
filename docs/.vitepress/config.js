@@ -10,7 +10,7 @@ export default defineConfig({
   markdown: {
     theme: 'nord',
   },
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.jpg' }]],
+  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }]],
   themeConfig: {
     siteTitle: 'VenusBlog',
     logo: '/favicon.svg',
