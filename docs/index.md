@@ -18,10 +18,19 @@ features:
   - icon: 😁
     title: Fluent Emoji Maker
     details: 创造一个表情
-  - icon: 🖖
-    title: NLP -- Knowledge Graph
-    details: --
 ---
+<!-- <script>
+  import { defineComponent } from 'vue'
+  export default defineComponent({
+    name: 'Home',
+    setup() {
+      return () => (
+        console.log(44)
+      )
+    },
+  })
+
+</script> -->
 <style>
     :root{
         --vp-home-hero-name-color:transparent;

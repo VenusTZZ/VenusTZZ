@@ -6,7 +6,7 @@ import type { Fn } from '@vueuse/core'
 const r180 = Math.PI
 const r90 = Math.PI / 2
 const r15 = Math.PI / 12
-const color = '#e0f0e9'
+const color = '#c0ebd7'
 
 const canvas = $ref<HTMLCanvasElement | null>(null)
 
@@ -123,12 +123,4 @@ onMounted(() => {
     <canvas class="canvas" ref="canvas"></canvas>
   </div>
 </template>
-<style scoped>
-/* .background {
-  background-image: url('./image/bg.jpg');
-} */
-.canvas {
-  width: 400px;
-  height: 400px;
-}
-</style>
+<style scoped></style>

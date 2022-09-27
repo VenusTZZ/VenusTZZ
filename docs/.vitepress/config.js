@@ -15,7 +15,7 @@ export default defineConfig({
     siteTitle: 'VenusBlog',
     logo: '/favicon.svg',
     description: 'Venus的博客',
-    themeConfig: {},
+    // themeConfig: {},
     nav: [
       { text: '主页', link: '/' },
       { text: '计划', link: '/Myplan/' },
@@ -34,21 +34,6 @@ export default defineConfig({
       // },
     ],
     sidebar: {
-      // This sidebar gets displayed when user is
-      // under `guide` directory.
-      // '/Myplan/': [
-      //   {
-      //     text: '计划',
-      //     collapsible: true,
-      //     collapsed: false,
-      //     items: [
-      //       // This shows `/config/index.md` page.
-      //       { text: 'Fluent emoji Maker', link: '/learn/' },
-      //       { text: 'PatientDashboard', link: '/learn/page2.md' }, // /config/index.md
-      //       { text: '素材使用', link: '/learn/Element.md' },
-      //     ],
-      //   },
-      // ],
       '/learn/': [
         {
           text: '我的习作',
@@ -62,18 +47,14 @@ export default defineConfig({
           ],
         },
       ],
-
-      // This sidebar gets displayed when user is
-      // under `config` directory.
       '/classwork/': [
         {
           text: '课题相关',
           collapsible: true,
           collapsed: false,
           items: [
-            // This shows `/config/index.md` page.
             { text: '已经做的事', link: '/classwork/' },
-            { text: '故障推荐', link: '/classwork/page2.md' }, // /config/index.md
+            { text: '故障推荐', link: '/classwork/page2.md' },
             { text: '知识图谱故障推荐', link: '/classwork/page3.md' },
             { text: 'Bert实体识别', link: '/classwork/page4.md' },
             { text: 'Bert-BiLSTM-crf实体识别', link: '/classwork/page5.md' },
@@ -86,9 +67,8 @@ export default defineConfig({
           collapsible: true,
           collapsed: false,
           items: [
-            // This shows `/config/index.md` page.
             { text: 'page1', link: '/leetcode/' },
-            { text: 'page2', link: '/leetcode/page2.md' }, // /config/index.md
+            { text: 'page2', link: '/leetcode/page2.md' },
           ],
         },
       ],
@@ -98,7 +78,6 @@ export default defineConfig({
       //     collapsible: true,
       //     collapsed: false,
       //     items: [
-      //       // This shows `/config/index.md` page.
       //       { text: '介绍', link: '/entertainment/' },
       //     ],
       //   },
@@ -107,7 +86,6 @@ export default defineConfig({
       //     collapsible: true,
       //     collapsed: false,
       //     items: [
-      //       // This shows `/config/index.md` page.
       //       { text: '文弱书生', link: '/entertainment/t2-p1.md' },
       //       { text: 'Lost Paradise', link: '/entertainment/t2-p2.md' },
       //     ],
@@ -120,9 +98,9 @@ export default defineConfig({
       message: 'Released under the MIT License.',
       copyright: 'Copyright © 2022-present Venus',
     },
-    carbonAds: {
-      code: 'your-carbon-code',
-      placement: 'your-carbon-placement',
-    },
+    // carbonAds: {
+    //   code: 'your-carbon-code',
+    //   placement: 'your-carbon-placement',
+    // },
   },
 })

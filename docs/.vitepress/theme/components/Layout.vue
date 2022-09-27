@@ -1,7 +1,7 @@
 <script setup>
 import BackGround from './BackGround.vue'
 import DefaultTheme from 'vitepress/theme'
-
+import ToBlog from './ToBlog.vue'
 const { Layout } = DefaultTheme
 </script>
 
@@ -10,6 +10,5 @@ const { Layout } = DefaultTheme
     <template #layout-top>
       <BackGround />
     </template>
-    <!-- <template #aside-ads-before></template> -->
   </Layout>
 </template>
