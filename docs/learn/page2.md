@@ -1,12 +1,10 @@
-# PatientDashboard--使用议程的患者仪表板
+# Vue2-Vuetify
 
 ## :man_scientist::woman_scientist:预览
 
 ![An image](/image/patientdashboard.png)
 
-[ 去看看:eyes:?](https://patientdashboard.vvvenus.website/)
-
-github仓库：[PatientDashboard](https://github.com/VenusTZZ/vue2-vuetify-patientdashboard)
+[github仓库：](https://github.com/VenusTZZ/vue-vuetify-projects)
 
 ### 视频参考
 [# 1 from oEKLDzLoGxcw](https://www.bilibili.com/video/BV1G14y1t7Mc?spm_id_from=333.999.header_right.fav_list.click&vd_source=c8bd96fafd5c7d5975d23f0dbc6fc7af)

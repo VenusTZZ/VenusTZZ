@@ -10,7 +10,9 @@ export default defineConfig({
   markdown: {
     theme: 'nord',
   },
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }]],
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+  ],
   themeConfig: {
     siteTitle: 'VenusBlog',
     logo: '/favicon.svg',
@@ -42,7 +44,8 @@ export default defineConfig({
           items: [
             // This shows `/config/index.md` page.
             { text: 'Fluent emoji Maker', link: '/learn/' },
-            { text: 'PatientDashboard', link: '/learn/page2.md' }, // /config/index.md
+            { text: 'Vue2-Vuetify', link: '/learn/page2.md' },
+            { text: 'MineSweeper', link: '/learn/page3.md' },
             { text: '素材使用', link: '/learn/Element.md' },
           ],
         },
