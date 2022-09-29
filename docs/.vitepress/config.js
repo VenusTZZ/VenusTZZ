@@ -46,6 +46,7 @@ export default defineConfig({
             { text: 'Fluent emoji Maker', link: '/learn/' },
             { text: 'Vue2-Vuetify', link: '/learn/page2.md' },
             { text: 'MineSweeper', link: '/learn/page3.md' },
+            { text: 'nodejs', link: '/learn/page4.md' },
             { text: '素材使用', link: '/learn/Element.md' },
           ],
         },
