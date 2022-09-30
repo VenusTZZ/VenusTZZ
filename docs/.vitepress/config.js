@@ -48,8 +48,6 @@ export default defineConfig({
             { text: 'MineSweeper', link: '/learn/page3.md' },
             { text: 'nodejs', link: '/learn/page4.md' },
             { text: '素材使用', link: '/learn/Element.md' },
-            { text: 'TypeScript', link: '/learn/TypeScript.md' },
-            { text: 'HTML', link: '/learn/HTML.md' },
           ],
         },
       ],
