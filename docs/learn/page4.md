@@ -600,6 +600,7 @@ rs.pipe(ws)
 ```js
 const fs=require('fs')
 const zlib=require('zlib')
+
 gzip=zlib.createGzip()
 var rs=fs.createReadStream('sample.txt','utf-8')
 var ws=fs.createWriteStream('sample.txt','utf-8')
@@ -615,6 +616,7 @@ const url=require('url')
 const fs=require('fs')
 const zlib=require('zlib')
 const EventEmitter=require('events')
+
 gzip=zlib.createGzip()
 // !!
 var event=null
@@ -632,3 +634,407 @@ http.createServer((req,res)=>{
 })
 ```
 ## 7. 自己实现路由功能
+- 1.最简单形式
+```js
+// ./server.js
+const http=require('http')
+const fs= require('fs')
+
+http.createServer((req,res)=>{
+  const myURL=new URL(req.url,'http://localhost:8080')
+  switch(myURL.pathname){
+    case '/login':
+      res.writeHead(200,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/login.html"),'utf-8')
+      break;
+    case '/home':
+      res.writeHead(200,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/home.html"),'utf-8')
+      break;
+  default:
+      res.writeHead(200,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/404.html"),'utf-8')
+  }
+}).listen(8080,()=>{
+  console.log('server is running at port 8080');
+})
+
+```
+- 2. switch形式
+```js
+// ./route.js
+const fs= require('fs')
+
+function route(res,pathname){
+switch(pathname){
+    case '/login':
+      res.writeHead(200,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/login.html"),'utf-8')
+      break;
+    case '/home':
+      res.writeHead(200,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/home.html"),'utf-8')
+      break;
+  default:
+      res.writeHead(200,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/404.html"),'utf-8')
+  }
+}
+module.exports=route
+```
+```js
+// ./server.js
+const http=require('http')
+const route=require('./route')
+const fs= require('fs')
+
+http.createServer((req,res)=>{
+  const myURL=new URL(req.url,'http://localhost:8080')
+  route(res,myURL.pathname)
+  res.end()
+}).listen(8080,()=>{
+  console.log('server is running at port 8080');
+})
+```
+- 3. 大对象形式
+```js
+// ./route.js
+const fs= require('fs')
+const route={
+
+  "/login":(req,res)=>{
+    render(res,"./static/login.html")
+  },
+
+  "/home":(req,res)=>{
+    res.writeHead(200,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/home.html"),'utf-8')
+  },
+
+  "/404":(req,res)=>{
+    res.writeHead(404,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/404.html"),'utf-8')
+  },
+
+  "/favicon.ico":(req,res)=>{
+    render(res,"./static/login.html","image/x-icon")
+  }
+}
+
+function render(res,path,type=""){
+  res.writeHead(200,{
+    "Content-Type":`${type?type:"text/html"};charset=utf-8`,
+    'Access-Control-Allow-Origin':'*',
+  })
+  res.write(fs.readFileSync(path),'utf-8')
+}
+module.exports=route
+```
+```js
+// ./server.js
+const http=require('http')
+const route=require('./route')
+const fs= require('fs')
+
+http.createServer((req,res)=>{
+  const myURL=new URL(req.url,'http://localhost:8080')
+  try{
+    route[myURL.pathname](req,res)
+  }catch(err){
+    route["/404"](req,res)
+  }
+  res.end()
+}).listen(8080,()=>{
+  console.log('server is running at port 8080');
+})
+```
+- 4. 抽取公共部分
+```js
+// ./route.js
+const fs= require('fs')
+const route={
+
+  "/login":(req,res)=>{
+    render(res,"./static/login.html")
+  },
+
+  "/home":(req,res)=>{
+    res.writeHead(200,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/home.html"),'utf-8')
+  },
+
+  "/404":(req,res)=>{
+    res.writeHead(404,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/404.html"),'utf-8')
+  },
+
+  "/favicon.ico":(req,res)=>{
+    render(res,"./static/login.html","image/x-icon")
+  }
+}
+
+function render(res,path,type=""){
+  res.writeHead(200,{
+    "Content-Type":`${type?type:"text/html"};charset=utf-8`,
+    'Access-Control-Allow-Origin':'*',
+  })
+  res.write(fs.readFileSync(path),'utf-8')
+}
+module.exports=route
+```
+```js
+// ./server.js
+const http=require('http')
+const route=require('./route')
+const fs= require('fs')
+
+function start(){
+  http.createServer((req,res)=>{
+    const myURL=new URL(req.url,'http://localhost:8080')
+    try{
+      route[myURL.pathname](req,res)
+    }catch(err){
+      route["/404"](req,res)
+    }
+    res.end()
+  }).listen(8080,()=>{
+    console.log('server is running at port 8080');
+  })
+}
+exports.start=start
+```
+```js
+// ./index.js
+const server=require('./server')
+server.start()
+```
+```js
+// ./api.js
+function render(res,path,type=""){
+  res.writeHead(200,{
+    "Content-Type":`${type?type:"application/json"};charset=utf-8`,
+    'Access-Control-Allow-Origin':'*',
+  })
+  res.write(fs.readFileSync(path),'utf-8')
+  res.end()
+}
+const apiRouter={
+  "/api/login":(req,res)=>{
+    render(res,`{"ok":1}`)
+  }
+}
+module.exports=apiRouter
+```
+- 合并route和api
+```js{6,7,8}
+// ./server.js
+const http=require('http')
+const route=require('./route')
+const api=require('./api')
+const Router={}
+Object.assign(Router,route)
+Object.assign(Router,api)
+
+function start(){
+  http.createServer((req,res)=>{
+    const myURL=new URL(req.url,'http://localhost:8080')
+    try{
+      Router[myURL.pathname](req,res)
+    }catch(err){
+      Router["/404"](req,res)
+    }
+    res.end()
+  }).listen(8080,()=>{
+    console.log('server is running at port 8080');
+  })
+}
+exports.start=start
+```
+```js
+// ./server.js
+const http=require('http')
+const route=require('./route')
+const fs= require('fs')
+const api=require('./api')
+const Router={}
+function use(obj){
+  Object.assign(Router,obj)
+}
+function start(){
+  http.createServer((req,res)=>{
+    const myURL=new URL(req.url,'http://localhost:8080')
+    try{
+      Router[myURL.pathname](req,res)
+    }catch(err){
+      Router["/404"](req,res)
+    }
+    res.end()
+  }).listen(8080,()=>{
+    console.log('server is running at port 8080');
+  })
+}
+exports.start=start
+exports.use=use
+```
+```js
+// ./index.js
+const server=require('./server')
+const route=require('./route')
+const api=require('./api')
+server.use(route)
+server.use(api)
+server.start()
+```
+## 8.路由获取请求参数
+- get请求
+```js{12,13,14}
+// ./api.js
+function render(res,path,type=""){
+  res.writeHead(200,{
+    "Content-Type":`${type?type:"application/json"};charset=utf-8`,
+    'Access-Control-Allow-Origin':'*',
+  })
+  res.write(fs.readFileSync(path),'utf-8')
+  res.end()
+}
+const apiRouter={
+  "/api/login":(req,res)=>{
+    const myURL=new URL(req.url,'http://localhost:8080')
+    if(myURL.searchParams.get('username')==='admin'&&myURL.searchParams.get('password')==='123'){
+      render(res,`{"ok":1}`)
+    }
+  }
+}
+module.exports=apiRouter
+```
+- post请求
+```js
+// 发送post
+loginPost.onClick()=>{
+  fetch('/api/login',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json'
+    },
+    body:JSON.parse({
+      username:username.value,
+      password:password.value
+    }),
+    headers:{
+      'Content-Type':'application/json'
+    },
+  }).then(res=>res.json()).then(res=>{
+    if(res.ok){
+      alert('登录成功')
+    }else{
+      alert('登录失败')
+    }
+  })
+}
+
+```
+```js{12,13,14}
+// 处理post
+// ./api.js
+function render(res,path,type=""){
+  res.writeHead(200,{
+    "Content-Type":`${type?type:"application/json"};charset=utf-8`,
+    'Access-Control-Allow-Origin':'*',
+  })
+  res.write(fs.readFileSync(path),'utf-8')
+  res.end()
+}
+const apiRouter={
+  "/api/loginpost":(req,res)=>{
+    let data=''
+    req.on('data',(chunk)=>{
+      data+=chunk
+    })
+    req.on('end',()=>{
+      const {username,password}=JSON.parse(data)
+      if(username==='admin'&&password==='123'){
+        render(res,`{"ok":1}`)
+      }else{
+        render(res,`{"ok":0}`)
+      }
+    })
+  }
+}
+module.exports=apiRouter
+```
+## 9.路由处理静态资源
+```html
+./index.html
+<link rel="stylesheet" href="css/login.css"></link>
+```
+```js
+// ./route.js
+const fs= require('fs')
+const path=require('path')
+// yarn add mine
+const mine=require('mine')
+const route={
+  "/404":(req,res)=>{
+    if(readStaticFile(req,res)){
+      return
+    }
+    res.writeHead(404,{
+    "Content-Type":"application/json;charset=utf-8",
+    'Access-Control-Allow-Origin':'*',
+  })
+    res.write(fs.readFileSync("./static/404.html"),'utf-8')
+  },
+}
+
+function render(res,path,type=""){
+  res.writeHead(200,{
+    "Content-Type":`${type?type:"text/html"};charset=utf-8`,
+    'Access-Control-Allow-Origin':'*',
+  })
+  res.write(fs.readFileSync(path),'utf-8')
+}
+
+function readStaticFile(req,res){
+  const myURL=new URL(req.url,'http://localhost:8080')
+  const pathname=path.join(__dirname,"/static",myURL.pathname)
+  if(myURL.pathname==="/") return false
+  if(fs.existSync(pathname)){
+    render(res,pathname,mine.getType(myURL.pathname.split('.').[1]))
+    return true
+  }
+  else{
+    return false
+  }
+}
+module.exports=route
+```
