@@ -55,13 +55,13 @@ test_data = ReadData('./example.test')
 
 print(train_data[0])
 ```
-    {'sentence': '主机厂家已机组提供高电压耐受能力情况说明（未说明具体耐受能力范围），缺少对应的报告文件支持。3.常用标准、规程、措施、制度、技术资料和各种记录缺失。主机厂家已提供符合要求的高电压耐受能力证明报告及对应的支持文件', 'tags': [[9, 13, '高电压耐受', 'Phe'], [34, 44, '缺少对应的报告文件支持', 'Phe'], [67, 72, '各种记录缺失', 'Cau'], [79, 96, '提供符合要求的高电压耐受能力证明报告', 'Met']]}
+{'sentence': '主机厂家已机组提供高电压耐受能力情况说明（未说明具体耐受能力范围），缺少对应的报告文件支持。3.常用标准、规程、措施、制度、技术资料和各种记录缺失。主机厂家已提供符合要求的高电压耐受能力证明报告及对应的支持文件', 'tags': [[9, 13, '高电压耐受', 'Phe'], [34, 44, '缺少对应的报告文件支持', 'Phe'], [67, 72, '各种记录缺失', 'Cau'], [79, 96, '提供符合要求的高电压耐受能力证明报告', 'Met']]}
 
 ```python
 categories
 
 ```
-    {'Cau', 'Met', 'Phe'}
+{'Cau', 'Met', 'Phe'}
 
 ```python
 id2label = {0:'O'}
@@ -73,8 +73,8 @@ label2id = {v: k for k, v in id2label.items()}
 print(id2label)
 print(label2id)
 ```
-    {0: 'O', 1: 'B-Cau', 2: 'I-Cau', 3: 'B-Met', 4: 'I-Met', 5: 'B-Phe', 6: 'I-Phe'}
-    {'O': 0, 'B-Cau': 1, 'I-Cau': 2, 'B-Met': 3, 'I-Met': 4, 'B-Phe': 5, 'I-Phe': 6}
+{0: 'O', 1: 'B-Cau', 2: 'I-Cau', 3: 'B-Met', 4: 'I-Met', 5: 'B-Phe', 6: 'I-Phe'}
+{'O': 0, 'B-Cau': 1, 'I-Cau': 2, 'B-Met': 3, 'I-Met': 4, 'B-Phe': 5, 'I-Phe': 6}
 
 ```python
 # from transformers import AutoTokenizer
@@ -149,7 +149,6 @@ batch_X, batch_y = next(iter(train_dataloader))
 # print(batch_y)
 ```
 
-
 ```python
 from torch import nn
 from transformers import AutoModel
@@ -196,14 +195,11 @@ class model(nn.Module):
 model = model().to(device)
 # print(model)
 ```
+Using cuda device
 
-    Using cuda device
-
-
-    Some weights of the model checkpoint at bert-base-chinese were not used when initializing BertModel: ['cls.predictions.decoder.weight', 'cls.predictions.transform.dense.weight', 'cls.seq_relationship.bias', 'cls.predictions.transform.LayerNorm.weight', 'cls.seq_relationship.weight', 'cls.predictions.transform.LayerNorm.bias', 'cls.predictions.bias', 'cls.predictions.transform.dense.bias']
-    - This IS expected if you are initializing BertModel from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
-    - This IS NOT expected if you are initializing BertModel from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
-
+Some weights of the model checkpoint at bert-base-chinese were not used when initializing BertModel: ['cls.predictions.decoder.weight', 'cls.predictions.transform.dense.weight', 'cls.seq_relationship.bias', 'cls.predictions.transform.LayerNorm.weight', 'cls.seq_relationship.weight', 'cls.predictions.transform.LayerNorm.bias', 'cls.predictions.bias', 'cls.predictions.transform.dense.bias']
+- This IS expected if you are initializing BertModel from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing BertModel from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
 
 
 ```python
@@ -362,7 +358,7 @@ with torch.no_grad():
     print(pred_label)
 ```
 
-    [{'entity_group': 'Phe', 'word': '油位指示窗内出现油面', 'start': 9, 'end': 19}, {'entity_group': 'Phe', 'word': '纹囊有渗漏', 'start': 23, 'end': 28}, {'entity_group': 'Met', 'word': '指示窗有油', 'start': 40, 'end': 45}, {'entity_group': 'Met', 'word': '采取临时措施', 'start': 56, 'end': 62}]
+[{'entity_group': 'Phe', 'word': '油位指示窗内出现油面', 'start': 9, 'end': 19}, {'entity_group': 'Phe', 'word': '纹囊有渗漏', 'start': 23, 'end': 28}, {'entity_group': 'Met', 'word': '指示窗有油', 'start': 40, 'end': 45}, {'entity_group': 'Met', 'word': '采取临时措施', 'start': 56, 'end': 62}]
 
 
 
@@ -405,10 +401,5 @@ with torch.no_grad():
     print(pred_label)
 ```
 
-    [{'entity_group': 'Phe', 'word': '体继电器保', 'start': 1, 'end': 6}, {'entity_group': 'Phe', 'word': '装置', 'start': 7, 'end': 9}, {'entity_group': 'Phe', 'word': '信号动作', 'start': 10, 'end': 14}, {'entity_group': 'Phe', 'word': '报警信', 'start': 24, 'end': 27}, {'entity_group': 'Cau', 'word': '空气侵入变压器', 'start': 49, 'end': 56}, {'entity_group': 'Cau', 'word': '油位降低', 'start': 60, 'end': 64}, {'entity_group': 'Cau', 'word': '二次回路故障', 'start': 67, 'end': 73}]
+[{'entity_group': 'Phe', 'word': '体继电器保', 'start': 1, 'end': 6}, {'entity_group': 'Phe', 'word': '装置', 'start': 7, 'end': 9}, {'entity_group': 'Phe', 'word': '信号动作', 'start': 10, 'end': 14}, {'entity_group': 'Phe', 'word': '报警信', 'start': 24, 'end': 27}, {'entity_group': 'Cau', 'word': '空气侵入变压器', 'start': 49, 'end': 56}, {'entity_group': 'Cau', 'word': '油位降低', 'start': 60, 'end': 64}, {'entity_group': 'Cau', 'word': '二次回路故障', 'start': 67, 'end': 73}]
 
-
-
-```python
-
-```
