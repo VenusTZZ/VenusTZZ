@@ -61,6 +61,7 @@ export default defineConfig({
             { text: '故障推荐', link: '/classwork/page2.md' },
             { text: '知识图谱故障推荐', link: '/classwork/page3.md' },
             { text: 'Bert-BiLSTM-CRF', link: '/classwork/page4.md' },
+            { text: 'Bert-BiLSTM-CRF', link: '/classwork/page5.md' },
             { text: 'doccano', link: '/classwork/page6.md' },
             { text: 'Others', link: '/classwork/others.md' },
           ],
