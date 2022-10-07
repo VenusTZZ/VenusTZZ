@@ -1,448 +1,414 @@
-# 只用Bert  做命名实体识别
-
-- 通过Huggingface的transformers库，使用bert模型做命名实体识别
-- 参考：[# 1](https://blog.csdn.net/weixin_53280379/article/details/125355146),[# 2](https://zhuanlan.zhihu.com/p/372989614?utm_id=0)
-
-## 1. 数据集读取
+# BERT-BiLSTM-CRF命名实体识别模型
+## 环境
+这里的用到了AutoDL的服务器
+所以先安装一些库
 ```python
-#这里自己写了一个函数用来读取数据，data_dir改成自己的路径
-data_dir = ''
-def read_data(file_path):
-    file_path = Path(file_path)
-
-    raw_text = file_path.read_text(encoding='UTF-8').strip()
-    raw_docs = re.split(r'\n\t?\n', raw_text)
-    # raw_docs = file_path.read_text().strip()
-    token_docs = []
-    tag_docs = []
-    for doc in raw_docs:
-        tokens = []
-        tags = []
-        for line in doc.split('\n'):
-            token, tag = line.split(' ')
-            tokens.append(token)
-            tags.append(tag)
-        token_docs.append(tokens)
-        tag_docs.append(tags)
-    return token_docs, tag_docs
-
-train_texts, train_tags = read_data(data_dir + '/train.txt')
-test_texts, test_tags = read_data(data_dir + '/val.txt')
-val_texts, val_tags = read_data(data_dir + '/test.txt')
-
-#unique_tags 代表有多少种标签，tag2id表示每种标签对应的id，id2tag表示每种id对应的标签。后面需要。
-unique_tags = set(tag for doc in train_tags for tag in doc)
-tag2id = {tag: id for id, tag in enumerate(unique_tags)}
-id2tag = {id: tag for tag, id in tag2id.items()}
-
+# !pip install pytorch-crf
+# !pip install seqeval
+# !pip install transformers
 ```
-## 2. Bert 的 Tokenizer
+## 读取数据
+
 ```python
-from transformers import AutoTokenizer, BertTokenizerFast 
-#is_split_into_words表示已经分词好了
-tokenizer = BertTokenizerFast.from_pretrained('bert-base-chinese')
-train_encodings = tokenizer(train_texts, is_split_into_words=True,return_offsets_mapping=True, padding=True, truncation=True,max_length=512)
-val_encodings = tokenizer(val_texts, is_split_into_words=True,return_offsets_mapping=True, padding=True, truncation=True,max_length=512)
-```
+from torch.utils.data import Dataset
 
-## 3. 标签对齐
-由于需要加上cls和padding，所以需要对标签做对应的处理，格外生成的用-100代替。
-```python
-def encode_tags(tags, encodings):
-    labels = [[tag2id[tag] for tag in doc] for doc in tags]
-    #print(labels)
-    encoded_labels = []
-    for doc_labels, doc_offset in zip(labels, encodings.offset_mapping):
-        # 创建全由-100组成的矩阵
-        doc_enc_labels = np.ones(len(doc_offset),dtype=int) * -100
-        arr_offset = np.array(doc_offset)
-        # set labels whose first offset position is 0 and the second is not 0
-        if len(doc_labels) >= 510:#防止异常
-            doc_labels = doc_labels[:510]
-        doc_enc_labels[(arr_offset[:,0] == 0) & (arr_offset[:,1] != 0)] = doc_labels
-        encoded_labels.append(doc_enc_labels.tolist())
+categories = set()
 
-    return encoded_labels
-
-train_labels = encode_tags(train_tags, train_encodings)
-val_labels = encode_tags(val_tags, val_encodings)
-
-```
-## 4. 构建数据集
-```python
-class NerDataset(torch.utils.data.Dataset):
-    def __init__(self, encodings, labels):
-        self.encodings = encodings
-        self.labels = labels
-
-    def __getitem__(self, idx):
-        item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
-        item['labels'] = torch.tensor(self.labels[idx])
-        return item
+class ReadData(Dataset):
+    def __init__(self, data_file):
+        self.data = self.load_data(data_file)
+    
+    def load_data(self, data_file):
+        Data = {}
+        with open(data_file, 'rt', encoding='utf-8') as f:
+            for idx, line in enumerate(f.read().split('\n\n')):
+                if not line:
+                    break
+                sentence, tags = '', []
+                for i, c in enumerate(line.split('\n')):
+                    word, tag = c.split('\t')
+                    sentence += word
+                    if tag[0] == 'B':
+                        tags.append([i, i, word, tag[2:]]) # Remove the B- or I-
+                        categories.add(tag[2:])
+                    elif tag[0] == 'I':
+                        tags[-1][1] = i
+                        tags[-1][2] += word
+                Data[idx] = {
+                    'sentence': sentence, 
+                    'tags': tags
+                }
+        return Data
 
     def __len__(self):
-        return len(self.labels)
+        return len(self.data)
 
-train_encodings.pop("offset_mapping") # 训练不需要这个
-val_encodings.pop("offset_mapping")
-train_dataset = NerDataset(train_encodings, train_labels)
-val_dataset = NerDataset(val_encodings, val_labels)
+    def __getitem__(self, idx):
+        return self.data[idx]
 ```
-## 5. 导入Bert模型（本地）
-进行微调、迁移学习
+
+
 ```python
-from transformers import AutoModelForTokenClassification
-from transformers import rainingArguments
-from transformers import Trainer
-model = AutoModelForTokenClassification
-.from_pretrained('ckiplab/albert-base-chinese-ner',
-                num_labels=5,
-                ignore_mismatched_sizes=True,
-                id2label=id2tag,
-                label2id=tag2id
-                )
+train_data = ReadData('./example.train')
+valid_data = ReadData('./example.dev')
+test_data = ReadData('./example.test')
 
+print(train_data[0])
 ```
-## 6. 自定义评估标准
+    {'sentence': '主机厂家已机组提供高电压耐受能力情况说明（未说明具体耐受能力范围），缺少对应的报告文件支持。3.常用标准、规程、措施、制度、技术资料和各种记录缺失。主机厂家已提供符合要求的高电压耐受能力证明报告及对应的支持文件', 'tags': [[9, 13, '高电压耐受', 'Phe'], [34, 44, '缺少对应的报告文件支持', 'Phe'], [67, 72, '各种记录缺失', 'Cau'], [79, 96, '提供符合要求的高电压耐受能力证明报告', 'Met']]}
+
 ```python
-from datasets import load_metric
-metric = load_metric("seqeval")
-
-def compute_metrics(p):
-    predictions, labels = p
-    predictions = np.argmax(predictions, axis=2)
-
-    # 不要管-100那些，剔除掉
-    true_predictions = [
-        [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
-        for prediction, label in zip(predictions, labels)
-    ]
-    true_labels = [
-        [label_list[l] for (p, l) in zip(prediction, label) if l != -100]
-        for prediction, label in zip(predictions, labels)
-    ]
-
-    results = metric.compute(predictions=true_predictions, references=true_labels)
-    return {
-        "precision": results["overall_precision"],
-        "recall": results["overall_recall"],
-        "f1": results["overall_f1"],
-        "accuracy": results["overall_accuracy"],
-    }
+categories
 
 ```
-## 7. 开始训练
-```python 
-checkpoint = 'bert-base-chinese'
-num_train_epochs = 1000
-per_device_train_batch_size=8
-per_device_eval_batch_size=8
+    {'Cau', 'Met', 'Phe'}
 
-training_args = TrainingArguments(
-    output_dir='./output',          # 输入路径
-    num_train_epochs=num_train_epochs,              # 训练epoch数量
-    per_device_train_batch_size=per_device_train_batch_size,  # 每个GPU的BATCH
-    per_device_eval_batch_size=per_device_eval_batch_size,
-    warmup_steps=500,                # warmup次数
-    weight_decay=0.01,               # 限制权重的大小
-    logging_dir='./logs',
-    logging_steps=10,
-    save_strategy='steps',
-    save_steps=1000,
-    save_total_limit=1,
-    evaluation_strategy='steps',
-    eval_steps=1000
-)
+```python
+id2label = {0:'O'}
+for c in list(sorted(categories)):
+    id2label[len(id2label)] = f"B-{c}"
+    id2label[len(id2label)] = f"I-{c}"
+label2id = {v: k for k, v in id2label.items()}
 
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset,
-    eval_dataset=val_dataset,
-    compute_metrics=compute_metrics
-)
-
-trainer.train()
-trainer.evaluate()
-
-model.save_pretrained("./checkpoint/model/%s-%sepoch" % (checkpoint, num_train_epochs))
-
+print(id2label)
+print(label2id)
 ```
-## 试用一下模型
-```python 
+    {0: 'O', 1: 'B-Cau', 2: 'I-Cau', 3: 'B-Met', 4: 'I-Met', 5: 'B-Phe', 6: 'I-Phe'}
+    {'O': 0, 'B-Cau': 1, 'I-Cau': 2, 'B-Met': 3, 'I-Met': 4, 'B-Phe': 5, 'I-Phe': 6}
+
+```python
+# from transformers import AutoTokenizer
+# import numpy as np
+
+# checkpoint = "bert-base-chinese"
+# tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+
+# sentence = '主机厂家已机组提供高电压耐受能力情况说明（未说明具体耐受能力范围）'
+# tags = [[9, 13, '高电压耐受', 'Phe']]
+
+# encoding = tokenizer(sentence, truncation=True)
+# tokens = encoding.tokens()
+# label = np.zeros(len(tokens), dtype=int)
+# for char_start, char_end, word, tag in tags:
+#     token_start = encoding.char_to_token(char_start)
+#     token_end = encoding.char_to_token(char_end)
+#     label[token_start] = label2id[f"B-{tag}"]
+#     label[token_start+1:token_end+1] = label2id[f"I-{tag}"]
+
+# print(tokens)
+# print(label)
+# print([id2label[id] for id in label])
+```
+
+
+```python
 import torch
+from torch.utils.data import DataLoader
+from transformers import AutoTokenizer
 import numpy as np
 
+checkpoint = "bert-base-chinese"
+tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 
-def get_token(input):
-    english = 'abcdefghijklmnopqrstuvwxyz'
-    output = []
-    buffer = ''
-    for s in input:
-        if s in english or s in english.upper():
-            buffer += s
-        else:
-            if buffer: output.append(buffer)
-            buffer = ''
-            output.append(s)
-    if buffer: output.append(buffer)
-    return output
+def collote_fn(batch_samples):
+    # batch_sentence, batch_tags,mask = [], [], []
+    batch_sentence, batch_tags = [], []
+    for sample in batch_samples:
+        # print(sample)
+        batch_sentence.append(sample['sentence'])
+        batch_tags.append(sample['tags'])
+        # mask.append(sample['mask_tensor'])
+    batch_inputs = tokenizer(
+        batch_sentence, 
+        padding=True, 
+        truncation=True, 
+        return_tensors="pt",
+        # max_length=256
+    )
+    batch_label = np.zeros(batch_inputs['input_ids'].shape, dtype=int)
+    for s_idx, sentence in enumerate(batch_sentence):
+        encoding = tokenizer(sentence, truncation=True)
+        batch_label[s_idx][0] = 0
+        batch_label[s_idx][len(encoding.tokens())-1:] = 0
+        for char_start, char_end, _, tag in batch_tags[s_idx]:
+            token_start = encoding.char_to_token(char_start)
+            token_end = encoding.char_to_token(char_end)
+            batch_label[s_idx][token_start] = label2id[f"B-{tag}"]
+            batch_label[s_idx][token_start+1:token_end+1] = label2id[f"I-{tag}"]
+    return batch_inputs, torch.tensor(batch_label)
+
+# train_dataloader = DataLoader(train_data, batch_size=4, shuffle=True, collate_fn=collote_fn)
+train_dataloader = DataLoader(train_data, batch_size=4, shuffle=True, collate_fn=collote_fn)
+valid_dataloader = DataLoader(valid_data, batch_size=4, shuffle=False, collate_fn=collote_fn)
+test_dataloader = DataLoader(test_data, batch_size=4, shuffle=False, collate_fn=collote_fn)
+
+batch_X, batch_y = next(iter(train_dataloader))
+# print('batch_X shape:', {k: v.shape for k, v in batch_X.items()})
+# print('batch_y shape:', batch_y.shape)
+# print(batch_X)
+# print(batch_y)
+```
 
 
-from transformers import AutoModelForTokenClassification, TrainingArguments, Trainer
+```python
+from torch import nn
+from transformers import AutoModel
+from torchcrf import CRF
 
-model = AutoModelForTokenClassification.from_pretrained('./output/checkpoint-2000')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'Using {device} device')
 
-from transformers import BertTokenizerFast
-tokenizer = BertTokenizerFast.from_pretrained('bert-base-chinese')
+class model(nn.Module):
+    def __init__(self):
+        super(model, self).__init__()
+        self.bert = AutoModel.from_pretrained(checkpoint)
+        self.config = self.bert.config
+        self.BiLstm=nn.LSTM(input_size=self.config.hidden_size,hidden_size=512,batch_first=True,bidirectional=True,num_layers=2)
+        self.Linear = nn.Linear(512*2, len(id2label))
+        self.crf = CRF(len(id2label),batch_first=True)
+            
+    # def forward(self, x):
+    def forward(self, x, y):
+        # 1.
+        # output = self.bert(**x).last_hidden_state
+        # output, _ = self.BiLstm(output)
+        # output = self.Linear(output)
+        # return output
+        # 2.
+        output = self.bert(**x).last_hidden_state
+        output, _ = self.BiLstm(output)
+        output = self.Linear(output)
+        # loss = self.crf(emissions=output,tags=y,mask=mask_tensor)
+        # tag = self.crf.decode(emissions=output,,mask=mask_tensor)
+        loss = self.crf(emissions=output,tags=y)
+        tag = self.crf.decode(emissions=output)
+        tag=torch.tensor(tag)
+        return loss, tag
+    
+    def decode(self,x):
+        output = self.bert(**x).last_hidden_state
+        output, _ = self.BiLstm(output)
+        output = self.Linear(output)
+        tag = self.crf.decode(emissions=output)
+        tag=torch.tensor(tag)
+        return tag
+    
+model = model().to(device)
+# print(model)
+```
+
+    Using cuda device
 
 
-if __name__ == '__main__':
-    input_str = '2009年高考在北京的报名费是2009元'
-    input_char = get_token(input_str)
-    input_tensor = tokenizer(input_char, is_split_into_words=True, padding=True, truncation=True,
-                             return_offsets_mapping=True, max_length=512, return_tensors="pt")
-    input_tokens = input_tensor.tokens()
-    offsets = input_tensor["offset_mapping"]
-    ignore_mask = offsets[0, :, 1] == 0
-    # print(input_tensor)
-    input_tensor.pop("offset_mapping")  # 不剔除的话会报错
-    outputs = model(**input_tensor)
-    probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)[0].tolist()
-    predictions = outputs.logits.argmax(dim=-1)[0].tolist()
-    print(predictions)
-    results = []
+    Some weights of the model checkpoint at bert-base-chinese were not used when initializing BertModel: ['cls.predictions.decoder.weight', 'cls.predictions.transform.dense.weight', 'cls.seq_relationship.bias', 'cls.predictions.transform.LayerNorm.weight', 'cls.seq_relationship.weight', 'cls.predictions.transform.LayerNorm.bias', 'cls.predictions.bias', 'cls.predictions.transform.dense.bias']
+    - This IS expected if you are initializing BertModel from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+    - This IS NOT expected if you are initializing BertModel from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
 
-    tokens = input_tensor.tokens()
+
+
+```python
+from tqdm.auto import tqdm
+
+def train_loop(dataloader, model, loss_fn, optimizer, lr_scheduler, epoch, total_loss):
+# def train_loop(dataloader, model, optimizer, lr_scheduler, epoch, total_loss):
+    progress_bar = tqdm(range(len(dataloader)))
+    progress_bar.set_description(f'loss: {0:>7f}')
+    finish_batch_num = (epoch-1) * len(dataloader)
+    
+    model.train()
+    for batch, (X, y) in enumerate(dataloader, start=1):
+        optimizer.zero_grad()
+        X, y = X.to(device), y.to(device)
+        loss, tag = model(X, y)
+        #  通过 pred.permute(0, 2, 1) 交换后两维，将模型预测结果从(batch,seq,7) 调整为 (batch,7,seq)。
+        # loss = loss_fn(pred.permute(0, 2, 1), y)
+        loss = abs(loss)
+        loss.backward()
+        optimizer.step()
+        lr_scheduler.step()
+        total_loss += loss.item()
+        progress_bar.set_description(f'loss: {total_loss/(finish_batch_num + batch):>7f}')
+        progress_bar.update(1)
+    return total_loss
+```
+
+
+```python
+# !pip install seqeval
+# from seqeval.metrics import classification_report
+# from seqeval.scheme import IOB2
+
+# y_true = [['O', 'O', 'O', 'B-LOC', 'I-LOC', 'I-LOC', 'B-LOC', 'O'], ['B-PER', 'I-PER', 'O']]
+# y_pred = [['O', 'O', 'B-LOC', 'I-LOC', 'I-LOC', 'I-LOC', 'B-LOC', 'O'], ['B-PER', 'I-PER', 'O']]
+
+# print(classification_report(y_true, y_pred, mode='strict', scheme=IOB2))
+```
+
+
+```python
+from seqeval.metrics import classification_report
+from seqeval.scheme import IOB2
+
+def test_loop(dataloader, model):
+    true_labels, true_predictions = [], []
+
+    model.eval()
+    with torch.no_grad():
+        for X, y in tqdm(dataloader):
+            X, y = X.to(device), y.to(device)
+            
+            # pred = model(X)
+            loss, tag = model(X, y)
+            
+            # predictions = pred.argmax(dim=-1)
+            predictions = tag
+            
+            true_labels += [[id2label[int(l)] for l in label if l != -100] for label in y]
+            true_predictions += [
+                [id2label[int(p)] for (p, l) in zip(prediction, label) if l != -100]
+                for prediction, label in zip(predictions, y)
+            ]
+    print(classification_report(true_labels, true_predictions, mode='strict', scheme=IOB2))
+```
+
+
+```python
+from transformers import AdamW, get_scheduler
+
+learning_rate = 1e-5
+epoch_num = 80
+loss_fn = nn.CrossEntropyLoss()
+optimizer = AdamW(model.parameters(), lr=learning_rate)
+
+lr_scheduler = get_scheduler(
+    "linear",
+    optimizer=optimizer,
+    num_warmup_steps=0,
+    num_training_steps=epoch_num*len(train_dataloader),
+)
+
+total_loss = 0.
+loss_list=[]
+for t in range(epoch_num):
+    print(f"Epoch {t+1}/{epoch_num}\n-------------------------------")
+    total_loss = train_loop(train_dataloader, model, loss_fn, optimizer, lr_scheduler, t+1, total_loss)
+    # total_loss = train_loop(train_dataloader, model, optimizer, lr_scheduler, t+1, total_loss)
+    test_loop(valid_dataloader, model)
+print("Done!")
+```
+
+    Epoch 80/80
+    -------------------------------
+
+
+
+      0%|          | 0/39 [00:00<?, ?it/s]
+
+
+
+      0%|          | 0/39 [00:00<?, ?it/s]
+
+
+                  precision    recall  f1-score   support
+    
+             Cau       0.94      0.88      0.91        72
+             Met       0.91      0.81      0.86        74
+             Phe       0.95      0.86      0.90       201
+    
+       micro avg       0.94      0.85      0.89       347
+       macro avg       0.93      0.85      0.89       347
+    weighted avg       0.94      0.85      0.89       347
+    
+    Done!
+80个epoch以后训练准确度都有90%以上
+## 测试一下
+```python
+sentence = '在使用过程中若发现油位指示窗内出现油面，说明波纹囊有渗漏，绝缘油进入空气腔。发现指示窗有油应马上通知厂家处理，并采取临时措施。'
+
+results = []
+with torch.no_grad():
+    inputs = tokenizer(sentence, truncation=True, return_tensors="pt")
+    inputs = inputs.to(device)
+    pred = model.decode(inputs)
+    predictions = pred[0].tolist()
+    pred_label = []
+    inputs_with_offsets = tokenizer(sentence, return_offsets_mapping=True)
+    tokens = inputs_with_offsets.tokens()
+    offsets = inputs_with_offsets["offset_mapping"]
     idx = 0
     while idx < len(predictions):
-        if ignore_mask[idx]:
-            idx += 1
-            continue
         pred = predictions[idx]
-        label = model.config.id2label[pred]
+        label = id2label[pred]
         if label != "O":
-            # 不加B-或者I-
-            label = label[2:]
-            start = idx
-            end = start + 1
-            # 获取所有token I-label
-            all_scores = []
-            all_scores.append(probabilities[start][predictions[start]])
+            label = label[2:] # Remove the B- or I-
+            start, end = offsets[idx]
             while (
-                    end < len(predictions)
-                    and model.config.id2label[predictions[end]] == f"I-{label}"
+                idx + 1 < len(predictions) and 
+                id2label[predictions[idx + 1]] == f"I-{label}"
             ):
-                all_scores.append(probabilities[end][predictions[end]])
-                end += 1
+                # all_scores.append(probabilities[idx + 1][predictions[idx + 1]])
+                _, end = offsets[idx + 1]
                 idx += 1
-            # 得到是他们平均的
-            score = np.mean(all_scores).item()
-            word = input_tokens[start:end]
-            results.append(
+            word = sentence[start:end]
+            pred_label.append(
                 {
                     "entity_group": label,
-                    "score": score,
                     "word": word,
                     "start": start,
                     "end": end,
                 }
             )
         idx += 1
-    for i in range(len(results)):
-        print(results[i])
+    print(pred_label)
+```
+
+    [{'entity_group': 'Phe', 'word': '油位指示窗内出现油面', 'start': 9, 'end': 19}, {'entity_group': 'Phe', 'word': '纹囊有渗漏', 'start': 23, 'end': 28}, {'entity_group': 'Met', 'word': '指示窗有油', 'start': 40, 'end': 45}, {'entity_group': 'Met', 'word': '采取临时措施', 'start': 56, 'end': 62}]
+
+
+
+```python
+sentence = '气体继电器保护装置的信号动作时，值班员应立即停止报警信号，并检查变压器，查明信号动作的原因，是否因空气侵入变压器内，或是油位降低，或是二次回路故障。'
+results = []
+with torch.no_grad():
+    inputs = tokenizer(sentence, truncation=True, return_tensors="pt")
+    inputs = inputs.to(device)
+    pred = model.decode(inputs)
+    predictions = pred[0].tolist()
+    pred_label = []
+    inputs_with_offsets = tokenizer(sentence, return_offsets_mapping=True)
+    tokens = inputs_with_offsets.tokens()
+    offsets = inputs_with_offsets["offset_mapping"]
+    idx = 0
+    while idx < len(predictions):
+        pred = predictions[idx]
+        label = id2label[pred]
+        if label != "O":
+            label = label[2:] # Remove the B- or I-
+            start, end = offsets[idx]
+            while (
+                idx + 1 < len(predictions) and 
+                id2label[predictions[idx + 1]] == f"I-{label}"
+            ):
+                # all_scores.append(probabilities[idx + 1][predictions[idx + 1]])
+                _, end = offsets[idx + 1]
+                idx += 1
+            word = sentence[start:end]
+            pred_label.append(
+                {
+                    "entity_group": label,
+                    "word": word,
+                    "start": start,
+                    "end": end,
+                }
+            )
+        idx += 1
+    print(pred_label)
+```
+
+    [{'entity_group': 'Phe', 'word': '体继电器保', 'start': 1, 'end': 6}, {'entity_group': 'Phe', 'word': '装置', 'start': 7, 'end': 9}, {'entity_group': 'Phe', 'word': '信号动作', 'start': 10, 'end': 14}, {'entity_group': 'Phe', 'word': '报警信', 'start': 24, 'end': 27}, {'entity_group': 'Cau', 'word': '空气侵入变压器', 'start': 49, 'end': 56}, {'entity_group': 'Cau', 'word': '油位降低', 'start': 60, 'end': 64}, {'entity_group': 'Cau', 'word': '二次回路故障', 'start': 67, 'end': 73}]
+
+
+
+```python
 
 ```
-## 完整代码
-```python 
-#!/usr/bin/python
-# -*- coding: UTF-8 -*-
-"""
-@author:Venus
-@file:Huggingface-BiLstm-crf-NER.py
-"""
-# 导入相关库
-import re
-from pathlib import Path
-from transformers import AutoTokenizer
-from transformers import BertTokenizerFast
-from transformers import BertTokenizer
-from transformers import AutoModelForTokenClassification
-from transformers import TrainingArguments
-from transformers import Trainer
-import numpy as np
-import torch
-from datasets import load_metric
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# 1. 数据集读取
-# 这里自己写了一个函数用来读取数据，data_dir改成自己的路径
-data_dir = ''
-
-
-def read_data(file_path):
-    file_path = Path(file_path)
-
-    raw_text = file_path.read_text(encoding='UTF-8').strip()
-    raw_docs = re.split(r'\n\t?\n', raw_text)
-    # raw_docs = file_path.read_text().strip()
-    token_docs = []
-    tag_docs = []
-    for doc in raw_docs:
-        tokens = []
-        tags = []
-        for line in doc.split('\n'):
-            token, tag = line.split(' ')
-            tokens.append(token)
-            tags.append(tag)
-        token_docs.append(tokens)
-        tag_docs.append(tags)
-    return token_docs, tag_docs
-
-
-train_texts, train_tags = read_data(data_dir + '/train.txt')
-test_texts, test_tags = read_data(data_dir + '/val.txt')
-val_texts, val_tags = read_data(data_dir + '/test.txt')
-
-# unique_tags 代表有多少种标签，tag2id表示每种标签对应的id，id2tag表示每种id对应的标签。后面需要。
-unique_tags = set(tag for doc in train_tags for tag in doc)
-tag2id = {tag: id for id, tag in enumerate(unique_tags)}
-id2tag = {id: tag for tag, id in tag2id.items()}
-label_list = list(unique_tags)
-
-# 2.Bert Tokenizer
-# is_split_into_words表示已经分词好了
-tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
-train_encodings = tokenizer(train_texts,
-                            is_split_into_words=True,
-                            return_offsets_mapping=True,
-                            padding=True,
-                            truncation=True,
-                            max_length=512)
-val_encodings = tokenizer(val_texts,
-                          is_split_into_words=True,
-                          return_offsets_mapping=True,
-                          padding=True,
-                          truncation=True,
-                          max_length=512)
-
-
-# 3. 标签对齐
-def encode_tags(tags, encodings):
-    labels = [[tag2id[tag] for tag in doc] for doc in tags]
-    # print(labels)
-    encoded_labels = []
-    for doc_labels, doc_offset in zip(labels, encodings.offset_mapping):
-        # 创建全由-100组成的矩阵
-        doc_enc_labels = np.ones(len(doc_offset), dtype=int) * -100
-        arr_offset = np.array(doc_offset)
-        # set labels whose first offset position is 0 and the second is not 0
-        if len(doc_labels) >= 510:  # 防止异常
-            doc_labels = doc_labels[:510]
-        doc_enc_labels[(arr_offset[:, 0] == 0) & (arr_offset[:, 1] != 0)] = doc_labels
-        encoded_labels.append(doc_enc_labels.tolist())
-
-    return encoded_labels
-
-
-train_labels = encode_tags(train_tags, train_encodings)
-val_labels = encode_tags(val_tags, val_encodings)
-
-
-# 4. 构建数据集
-class NerDataset(torch.utils.data.Dataset):
-    def __init__(self, encodings, labels):
-        self.encodings = encodings
-        self.labels = labels
-
-    def __getitem__(self, idx):
-        item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
-        item['labels'] = torch.tensor(self.labels[idx])
-        return item
-
-    def __len__(self):
-        return len(self.labels)
-
-
-train_encodings.pop("offset_mapping")  # 训练不需要这个
-val_encodings.pop("offset_mapping")
-train_dataset = NerDataset(train_encodings, train_labels)
-val_dataset = NerDataset(val_encodings, val_labels)
-
-# 5. 导入预训练模型
-model = AutoModelForTokenClassification.from_pretrained('bert-base-chinese',
-                                                        num_labels=5,
-                                                        ignore_mismatched_sizes=True,
-                                                        id2label=id2tag,
-                                                        label2id=tag2id
-                                                        )
-# 6. 评估标准
-metric = load_metric("seqeval")
-
-
-def compute_metrics(p):
-    predictions, labels = p
-    predictions = np.argmax(predictions, axis=2)
-
-    # 不要管-100那些，剔除掉
-    true_predictions = [
-        [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
-        for prediction, label in zip(predictions, labels)
-    ]
-    true_labels = [
-        [label_list[l] for (p, l) in zip(prediction, label) if l != -100]
-        for prediction, label in zip(predictions, labels)
-    ]
-
-    results = metric.compute(predictions=true_predictions, references=true_labels)
-    return {
-        "precision": results["overall_precision"],
-        "recall": results["overall_recall"],
-        "f1": results["overall_f1"],
-        "accuracy": results["overall_accuracy"],
-    }
-
-
-# 7. 训练
-checkpoint = 'bert-base-chinese'
-num_train_epochs = 1000
-per_device_train_batch_size = 8
-per_device_eval_batch_size = 8
-
-training_args = TrainingArguments(
-    output_dir='./output',  # 输入路径
-    num_train_epochs=num_train_epochs,  # 训练epoch数量
-    per_device_train_batch_size=per_device_train_batch_size,  # 每个GPU的BATCH
-    per_device_eval_batch_size=per_device_eval_batch_size,
-    warmup_steps=500,  # warmup次数
-    weight_decay=0.01,  # 限制权重的大小
-    logging_dir='./logs',
-    logging_steps=10,
-    save_strategy='steps',
-    save_steps=1000,
-    save_total_limit=1,
-    evaluation_strategy='steps',
-    eval_steps=1000
-)
-
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset,
-    eval_dataset=val_dataset,
-    compute_metrics=compute_metrics
-)
-
-
-def run():
-    trainer.train()
-    trainer.evaluate()
-    model.save_pretrained("./checkpoint/model/%s-%sepoch" % (checkpoint, num_train_epochs))
-
-
-if __name__ == '__main__':
-    run()
-
-```
-## 数据标注软件的使用-doccano
-[doccano-github](https://github.com/doccano/doccano)
