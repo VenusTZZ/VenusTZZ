@@ -54,14 +54,12 @@ valid_data = ReadData('./example.dev')
 test_data = ReadData('./example.test')
 print(train_data[0])
 ```
-{'sentence': '主机厂家已机组提供高电压耐受能力情况说明（未说明具体耐受能力范围），缺少对应的报告文件支持。3.常用标准、规程、措施、制度、技术资料和各种记录缺失。主机厂家已提供符合要求的高电压耐受能力证明报告及对应的支持文件', 'tags': [[9, 13, '高电压耐受', 'Phe'], [34, 44, '缺少对应的报告文件支持', 'Phe'], [67, 72, '各种记录缺失', 'Cau'], [79, 96, '提供符合要求的高电压耐受能力证明报告', 'Met']]}
 
 ```python
 categories
 
 ```
-{'Cau', 'Met', 'Phe'}
-
+xxx
 ```python
 id2label = {0:'O'}
 for c in list(sorted(categories)):
@@ -72,9 +70,7 @@ label2id = {v: k for k, v in id2label.items()}
 print(id2label)
 print(label2id)
 ```
-{0: 'O', 1: 'B-Cau', 2: 'I-Cau', 3: 'B-Met', 4: 'I-Met', 5: 'B-Phe', 6: 'I-Phe'}
-{'O': 0, 'B-Cau': 1, 'I-Cau': 2, 'B-Met': 3, 'I-Met': 4, 'B-Phe': 5, 'I-Phe': 6}
-
+xxx
 ```python
 # from transformers import AutoTokenizer
 # import numpy as np
@@ -194,11 +190,7 @@ class model(nn.Module):
 model = model().to(device)
 # print(model)
 ```
-Using cuda device
-
-Some weights of the model checkpoint at bert-base-chinese were not used when initializing BertModel: ['cls.predictions.decoder.weight', 'cls.predictions.transform.dense.weight', 'cls.seq_relationship.bias', 'cls.predictions.transform.LayerNorm.weight', 'cls.seq_relationship.weight', 'cls.predictions.transform.LayerNorm.bias', 'cls.predictions.bias', 'cls.predictions.transform.dense.bias']
-- This IS expected if you are initializing BertModel from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
-- This IS NOT expected if you are initializing BertModel from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+xxx
 
 
 ```python
@@ -356,11 +348,7 @@ with torch.no_grad():
         idx += 1
     print(pred_label)
 ```
-
-[{'entity_group': 'Phe', 'word': '油位指示窗内出现油面', 'start': 9, 'end': 19}, {'entity_group': 'Phe', 'word': '纹囊有渗漏', 'start': 23, 'end': 28}, {'entity_group': 'Met', 'word': '指示窗有油', 'start': 40, 'end': 45}, {'entity_group': 'Met', 'word': '采取临时措施', 'start': 56, 'end': 62}]
-
-
-
+xxxx
 ```python
 sentence = '气体继电器保护装置的信号动作时，值班员应立即停止报警信号，并检查变压器，查明信号动作的原因，是否因空气侵入变压器内，或是油位降低，或是二次回路故障。'
 results = []
