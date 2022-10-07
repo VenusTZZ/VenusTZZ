@@ -63,7 +63,7 @@ export default defineConfig({
             { text: 'Bert-BiLSTM-CRF', link: '/classwork/page4.md' },
             { text: '知识蒸馏', link: '/classwork/page5.md' },
             { text: 'doccano', link: '/classwork/page6.md' },
-            { text: 'Others', link: '/classwork/others.md' },
+            // { text: 'Others', link: '/classwork/others.md' },
           ],
         },
       ],
