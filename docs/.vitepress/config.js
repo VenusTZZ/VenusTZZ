@@ -47,6 +47,7 @@ export default defineConfig({
             { text: 'Vue2-Vuetify', link: '/learn/page2.md' },
             { text: 'MineSweeper', link: '/learn/page3.md' },
             { text: 'nodejs', link: '/learn/page4.md' },
+            { text: 'Vue3 实用工具', link: '/learn/MyVuePlugins.md.md' },
             { text: '素材使用', link: '/learn/Element.md' },
           ],
         },
