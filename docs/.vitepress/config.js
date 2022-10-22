@@ -59,6 +59,7 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: '已经做的事', link: '/classwork/' },
+            { text: 'GlobalPointer', link: '/classwork/03.md' },
             { text: 'Bert-BiLSTM-CRF', link: '/classwork/01.md' },
             { text: 'doccano', link: '/classwork/02.md' },
             { text: 'Others', link: '/classwork/99.md' },
