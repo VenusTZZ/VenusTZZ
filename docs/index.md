@@ -6,7 +6,7 @@ hero:
   text:  Hi 🖐️
   tagline: 新手上路，欢迎指教
   image:
-    src: /Saly-19.svg
+    src: /22.svg
     alt: VitePress
   actions:
     - theme: brand
