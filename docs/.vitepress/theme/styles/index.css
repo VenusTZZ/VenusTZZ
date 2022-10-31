@@ -10,7 +10,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   width: 550px;
-  border-radius: 50%;
+  border-radius: 80%;
   will-change: filter;
   transition: all 0.3s;
 }
