@@ -20,7 +20,7 @@ features:
     details: 创造一个表情👻
   - icon: 🤗
     title: 前端 - FrontEnd
-    details: 🟧HTML 🟥CSS 🟨Js 🟦Ts 🟩Vue
+    details: 🟧HTML 🟥CSS 🟨Js 🟦Ts 🟩Vue 💠React
   - icon: 🔔
     title: NLP
     details: ⚡BERT ⚡GLobalPointer ⚡GAT ⚡GCN
