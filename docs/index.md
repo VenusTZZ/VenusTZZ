@@ -21,6 +21,9 @@ features:
   - icon: 🤗
     title: 前端 - FrontEnd
     details: 🟧HTML 🟥CSS 🟨Js 🟦Ts 🟩Vue
+  - icon: 🔔
+    title: NLP
+    details: ⚡BERT ⚡GLobalPointer ⚡GAT ⚡GCN
 ---
 <!-- <script>
   import { defineComponent } from 'vue'
