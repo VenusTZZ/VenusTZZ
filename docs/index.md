@@ -12,6 +12,9 @@ hero:
     - theme: brand
       text: MyGit
       link: https://github.com/VenusTZZ
+    - theme: brand
+      text: 语雀
+      link: https://www.yuque.com/venus-z3ffv/ue3pr1
 #       text: View on GitHub
 #       link: https://github.com/vuejs/vitepress
 features:
