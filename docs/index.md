@@ -17,7 +17,10 @@ hero:
 features:
   - icon: 😁
     title: Fluent Emoji Maker
-    details: 创造一个表情
+    details: 创造一个表情👻
+  - icon: 🤗
+    title: 前端 - FrontEnd
+    details: 🟧HTML 🟥CSS 🟨Js 🟦Ts 🟩Vue
 ---
 <!-- <script>
   import { defineComponent } from 'vue'
