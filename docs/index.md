@@ -26,18 +26,6 @@ features:
     title: NLP
     details: ⚡BERT ⚡GLobalPointer ⚡GAT ⚡GCN
 ---
-<!-- <script>
-  import { defineComponent } from 'vue'
-  export default defineComponent({
-    name: 'Home',
-    setup() {
-      return () => (
-        console.log(44)
-      )
-    },
-  })
-
-</script> -->
 <style>
     :root{
         --vp-home-hero-name-color:transparent;
