@@ -2,21 +2,22 @@
 
 [![Blog](https://img.shields.io/badge/Blog-venustzz.github.io-41d1ff?style=for-the-badge&logo=vuedotjs&logoColor=white)](https://venustzz.github.io/VenusTZZ/)
 
-A developer who likes tinkering with AI, frontend and backend 🧑💻
+A developer who likes tinkering with AI, agents, frontend and backend 🧑💻
 
-- 🤖 **AI**: PyTorch · DeepSpeed · vLLM · Ascend C
+- 🤖 **AI**: PyTorch · DeepSpeed · vLLM · Ascend C · Agents
 - 🌱 **Frontend**: Vue / React / TypeScript
 - ☕ **Backend**: Java / Spring Boot
 
 #### Tech Stack
 
-**AI / NLP**
+**AI / NLP / Agents**
 
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
 ![DeepSpeed](https://img.shields.io/badge/DeepSpeed-4B32C3?style=flat-square)
 ![vLLM](https://img.shields.io/badge/vLLM-FF5A1F?style=flat-square)
 ![Ascend C](https://img.shields.io/badge/Ascend_C-C7000B?style=flat-square)
+![AI Agents](https://img.shields.io/badge/AI_Agents-1F6FEB?style=flat-square)
 
 **Frontend**
 
