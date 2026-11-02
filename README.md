@@ -5,7 +5,6 @@
 一个喜欢折腾的前端 & NLP 爱好者 🧑‍💻
 
 - 🌱 **前端**：Vue / React / TypeScript
-- 🤖 **NLP**：NER · BERT · GlobalPointer · GNN
 - ✍️ **博客**：[venustzz.github.io](https://venustzz.github.io/)
 
 #### 技术栈
