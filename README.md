@@ -4,7 +4,7 @@
 
 A developer who likes tinkering with AI, frontend and backend 🧑💻
 
-- 🤖 **AI**: PyTorch · DeepSpeed · vLLM
+- 🤖 **AI**: PyTorch · DeepSpeed · vLLM · Ascend C
 - 🌱 **Frontend**: Vue / React / TypeScript
 - ☕ **Backend**: Java / Spring Boot
 
@@ -16,6 +16,7 @@ A developer who likes tinkering with AI, frontend and backend 🧑💻
 ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
 ![DeepSpeed](https://img.shields.io/badge/DeepSpeed-4B32C3?style=flat-square)
 ![vLLM](https://img.shields.io/badge/vLLM-FF5A1F?style=flat-square)
+![Ascend C](https://img.shields.io/badge/Ascend_C-C7000B?style=flat-square)
 
 **Frontend**
 
