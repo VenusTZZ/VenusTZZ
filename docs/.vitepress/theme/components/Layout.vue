@@ -1,14 +1,17 @@
 <script setup>
-import BackGround from './BackGround.vue'
+import { useData } from 'vitepress'
 import DefaultTheme from 'vitepress/theme'
+import BackGround from './BackGround.vue'
+import HomeHero from './HomeHero.vue'
 
-const { Layout } = DefaultTheme
+const { frontmatter } = useData()
 </script>
 
 <template>
-  <Layout>
+  <HomeHero v-if="frontmatter.layout === 'home'" />
+  <DefaultTheme.Layout v-else>
     <template #layout-top>
       <BackGround />
     </template>
-  </Layout>
+  </DefaultTheme.Layout>
 </template>

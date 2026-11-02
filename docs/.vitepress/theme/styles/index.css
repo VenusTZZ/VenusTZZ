@@ -1,21 +1,38 @@
 @import './var.css';
 
+/* ---------------------------------------------------------------------------
+ * 基础：整站强制深色 —— 墨绿黑底，让背景动画里的枝条像暗室里发光的植物
+ * ------------------------------------------------------------------------ */
+:root {
+  color-scheme: dark;
+
+  --vp-c-bg: #0d1512;
+  --vp-c-bg-alt: #0a100e;
+  --vp-c-bg-soft: #101b16;
+  --vp-c-bg-elv: #0d1512;
+  --vp-c-text-1: rgba(230, 243, 237, 0.92);
+  --vp-c-text-2: rgba(192, 235, 215, 0.7);
+  --vp-c-text-3: rgba(192, 235, 215, 0.45);
+  --vp-c-divider: rgba(192, 235, 215, 0.12);
+  --vp-c-gutter: #0d1512;
+}
+
+/* 极简名片：不需要导航栏 */
+.VPNav {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * 页脚（首页以外页面使用）
+ * ------------------------------------------------------------------------ */
+.VPFooter {
+  border-top: none;
+  padding: 20px 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--vp-c-text-3);
+}
+
 .logo {
   border-radius: 50%;
-}
-
-.image-src {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 550px;
-  border-radius: 80%;
-  will-change: filter;
-  transition: all 0.3s;
-}
-
-.image-src:hover {
-  filter: drop-shadow(0 0 2em #bd34fe);
-  transition: all 0.3s;
 }
