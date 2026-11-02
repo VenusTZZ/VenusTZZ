@@ -8,12 +8,12 @@ const copy = {
   en: { text: 'Hi 🖐️', tagline: 'Planting seeds in code' },
 }
 
-const lang = ref('zh')
+const lang = ref('en')
 const avatarLoaded = ref(false)
 const t = computed(() => copy[lang.value])
 
 onMounted(() => {
-  lang.value = localStorage.getItem('lang') === 'en' ? 'en' : 'zh'
+  lang.value = localStorage.getItem('lang') === 'zh' ? 'zh' : 'en'
   document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
 })
 
