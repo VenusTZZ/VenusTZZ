@@ -17,6 +17,12 @@
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
 
+#### 项目
+
+<a href="https://github.com/VenusTZZ/MyNER">
+  <img height="140" src="https://github-readme-stats.vercel.app/api/pin/?username=VenusTZZ&repo=MyNER&theme=vue" />
+</a>
+
 #### GitHub 统计
 
 <a href="https://github.com/VenusTZZ">
