@@ -1,11 +1,11 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  base: '/',
+  base: '/VenusTZZ/',
   title: 'Venus',
   description: 'Venus 的个人主页',
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: './favicon.svg' }],
   ],
   themeConfig: {
     siteTitle: 'Venus',

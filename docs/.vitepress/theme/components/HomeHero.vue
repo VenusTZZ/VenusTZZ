@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { withBase } from 'vitepress'
 import BackGround from './BackGround.vue'
 
 const copy = {
@@ -32,7 +33,7 @@ function toggleLang() {
       {{ lang === 'zh' ? 'EN' : '中文' }}
     </button>
     <main class="hero-main" data-avoid>
-      <img class="avatar" src="/Saly-19.svg" alt="Venus" />
+      <img class="avatar" :src="withBase('/Saly-19.svg')" alt="Venus" />
       <h1 class="name"><span class="clip">Venus</span></h1>
       <p class="text">{{ t.text }}</p>
       <p class="tagline">{{ t.tagline }}</p>
