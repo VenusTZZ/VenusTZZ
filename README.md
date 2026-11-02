@@ -7,7 +7,6 @@ A developer who likes tinkering with AI, frontend and backend 🧑💻
 - 🤖 **AI**: PyTorch · DeepSpeed · vLLM
 - 🌱 **Frontend**: Vue / React / TypeScript
 - ☕ **Backend**: Java / Spring Boot
-- ✍️ **Blog**: [venustzz.github.io/VenusTZZ](https://venustzz.github.io/VenusTZZ/)
 
 #### Tech Stack
 
