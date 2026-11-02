@@ -13,7 +13,8 @@
 
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
-![Hugging Face](https://img.shields.io/badge/Hugging_Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black)
+![DeepSpeed](https://img.shields.io/badge/DeepSpeed-4B32C3?style=flat-square)
+![vLLM](https://img.shields.io/badge/vLLM-FF5A1F?style=flat-square)
 
 **前端**
 
