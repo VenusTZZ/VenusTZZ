@@ -5,7 +5,7 @@
 一个喜欢折腾的前端 & NLP 爱好者 🧑‍💻
 
 - 🌱 **前端**：Vue / React / TypeScript
-- 🤖 **NLP**：NER · BERT · GlobalPointer · GNN（[MyNER](https://github.com/VenusTZZ/MyNER)）
+- 🤖 **NLP**：NER · BERT · GlobalPointer · GNN
 - ✍️ **博客**：[venustzz.github.io](https://venustzz.github.io/)
 
 #### 技术栈
@@ -16,12 +16,6 @@
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
-
-#### 项目
-
-<a href="https://github.com/VenusTZZ/MyNER">
-  <img height="140" src="https://github-readme-stats.vercel.app/api/pin/?username=VenusTZZ&repo=MyNER&theme=vue" />
-</a>
 
 #### GitHub 统计
 
