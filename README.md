@@ -2,14 +2,14 @@
 
 [![Blog](https://img.shields.io/badge/Blog-venustzz.github.io-41d1ff?style=for-the-badge&logo=vuedotjs&logoColor=white)](https://venustzz.github.io/VenusTZZ/)
 
-一个喜欢折腾 AI、前端和后端的程序员 🧑💻
+A developer who likes tinkering with AI, frontend and backend 🧑💻
 
-- 🤖 **AI**：PyTorch · DeepSpeed · vLLM
-- 🌱 **前端**：Vue / React / TypeScript
-- ☕ **后端**：Java / Spring Boot
-- ✍️ **博客**：[venustzz.github.io/VenusTZZ](https://venustzz.github.io/VenusTZZ/)
+- 🤖 **AI**: PyTorch · DeepSpeed · vLLM
+- 🌱 **Frontend**: Vue / React / TypeScript
+- ☕ **Backend**: Java / Spring Boot
+- ✍️ **Blog**: [venustzz.github.io/VenusTZZ](https://venustzz.github.io/VenusTZZ/)
 
-#### 技术栈
+#### Tech Stack
 
 **AI / NLP**
 
@@ -18,19 +18,19 @@
 ![DeepSpeed](https://img.shields.io/badge/DeepSpeed-4B32C3?style=flat-square)
 ![vLLM](https://img.shields.io/badge/vLLM-FF5A1F?style=flat-square)
 
-**前端**
+**Frontend**
 
 ![Vue.js](https://img.shields.io/badge/Vue.js-4FC08D?style=flat-square&logo=vuedotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
 
-**后端**
+**Backend**
 
 ![Java](https://img.shields.io/badge/Java-F89820?style=flat-square&logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring_Boot-6DB33F?style=flat-square&logo=springboot&logoColor=white)
 
-#### GitHub 统计
+#### GitHub Stats
 
 <a href="https://github.com/VenusTZZ">
   <img height="160" src="https://stats.justsong.cn/api/github?username=VenusTZZ&show_icons=true&theme=vue" />
