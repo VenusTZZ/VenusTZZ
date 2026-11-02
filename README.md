@@ -4,7 +4,9 @@
 
 一个喜欢折腾 AI、前端和后端的程序员 🧑💻
 
+- 🤖 **AI**：PyTorch · DeepSpeed · vLLM
 - 🌱 **前端**：Vue / React / TypeScript
+- ☕ **后端**：Java / Spring Boot
 - ✍️ **博客**：[venustzz.github.io/VenusTZZ](https://venustzz.github.io/VenusTZZ/)
 
 #### 技术栈
@@ -31,8 +33,5 @@
 #### GitHub 统计
 
 <a href="https://github.com/VenusTZZ">
-  <img height="160" src="https://github-readme-stats.vercel.app/api?username=VenusTZZ&show_icons=true&theme=vue" />
-</a>
-<a href="https://github.com/VenusTZZ">
-  <img height="160" src="https://github-readme-stats.vercel.app/api/top-langs/?username=VenusTZZ&layout=compact&theme=vue" />
+  <img height="160" src="https://stats.justsong.cn/api/github?username=VenusTZZ&show_icons=true&theme=vue" />
 </a>
