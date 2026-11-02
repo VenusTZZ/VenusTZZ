@@ -9,7 +9,6 @@ const copy = {
 }
 
 const lang = ref('en')
-const avatarLoaded = ref(false)
 const t = computed(() => copy[lang.value])
 
 onMounted(() => {
@@ -34,13 +33,7 @@ function toggleLang() {
       {{ lang === 'zh' ? 'EN' : '中文' }}
     </button>
     <main class="hero-main" data-avoid>
-      <img
-        class="avatar"
-        :class="{ loaded: avatarLoaded }"
-        :src="withBase('/Saly-19.png')"
-        alt="Venus"
-        @load="avatarLoaded = true"
-      />
+      <img class="avatar" :src="withBase('/Saly-19.png')" alt="Venus" />
       <h1 class="name"><span class="clip">Venus</span></h1>
       <p class="text">{{ t.text }}</p>
       <p class="tagline">{{ t.tagline }}</p>
@@ -75,16 +68,11 @@ function toggleLang() {
   object-fit: contain;
   border-radius: 50%;
   margin-bottom: 24px;
-  opacity: 0;
-  transition: opacity 0.5s, filter 0.3s;
+  transition: filter 0.3s;
   will-change: filter;
 }
 
-.avatar.loaded {
-  opacity: 1;
-}
-
-.avatar.loaded:hover {
+.avatar:hover {
   filter: drop-shadow(0 0 2em #bd34fe);
 }
 
