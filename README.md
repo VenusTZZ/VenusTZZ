@@ -1,5 +1,7 @@
 <p align="left">
-  <img src="assets/hero.svg" width="100%" alt="Venus — AI, frontend and backend" />
+  <a href="https://venustzz.github.io/VenusTZZ/">
+    <img src="assets/hero.svg" width="100%" alt="Venus — AI, frontend and backend" />
+  </a>
 </p>
 
 <p align="left">
@@ -39,7 +41,9 @@
 </p>
 
 <p align="left">
-  <img src="assets/divider.svg" width="120" alt="" />
+  <a href="https://venustzz.github.io/VenusTZZ/">
+    <img src="assets/divider.svg" width="120" alt="" />
+  </a>
 </p>
 
 <p align="left">
