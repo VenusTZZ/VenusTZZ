@@ -21,6 +21,10 @@
 </p>
 
 <p align="center">
+  <img src="assets/divider.svg" width="120" alt="" />
+</p>
+
+<p align="center">
   <sub><a href="https://venustzz.github.io/VenusTZZ/">Blog — venustzz.github.io</a></sub>
 </p>
 

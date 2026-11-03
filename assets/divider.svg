@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="12" viewBox="0 0 120 12" fill="none">
+  <style>
+    .rule { stroke: #dad6ce; }
+    .dot { fill: #a2b09a; }
+    @media (prefers-color-scheme: dark) {
+      .rule { stroke: #3d413c; }
+      .dot { fill: #7e8f77; }
+    }
+  </style>
+  <line x1="0" y1="6" x2="100" y2="6" class="rule" stroke-width="1" />
+  <circle cx="110" cy="6" r="3" class="dot" />
+</svg>
