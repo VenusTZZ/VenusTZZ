@@ -7,7 +7,10 @@
 </p>
 
 <p align="left">
-  <sub>AI</sub><br />
+  <sub>AI</sub>
+</p>
+
+<p align="left">
   <img src="https://img.shields.io/badge/Python-dce3da?style=flat-square" alt="Python" />&nbsp;
   <img src="https://img.shields.io/badge/PyTorch-dce3da?style=flat-square" alt="PyTorch" />&nbsp;
   <img src="https://img.shields.io/badge/DeepSpeed-dce3da?style=flat-square" alt="DeepSpeed" />&nbsp;
@@ -17,14 +20,20 @@
 </p>
 
 <p align="left">
-  <sub>Frontend</sub><br />
+  <sub>Frontend</sub>
+</p>
+
+<p align="left">
   <img src="https://img.shields.io/badge/Vue-dde4e8?style=flat-square" alt="Vue" />&nbsp;
   <img src="https://img.shields.io/badge/React-dde4e8?style=flat-square" alt="React" />&nbsp;
   <img src="https://img.shields.io/badge/TypeScript-dde4e8?style=flat-square" alt="TypeScript" />
 </p>
 
 <p align="left">
-  <sub>Backend</sub><br />
+  <sub>Backend</sub>
+</p>
+
+<p align="left">
   <img src="https://img.shields.io/badge/Java-eae2d7?style=flat-square" alt="Java" />&nbsp;
   <img src="https://img.shields.io/badge/Spring_Boot-eae2d7?style=flat-square" alt="Spring Boot" />
 </p>
