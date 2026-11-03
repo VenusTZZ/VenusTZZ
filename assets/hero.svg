@@ -5,21 +5,21 @@
     }
     .ink { fill: #35362f; }
     .muted { fill: #8d918a; }
-    .moon { fill: #efeade; }
-    .bird { stroke: #7a817a; }
-    .star { fill: #c9cfc7; }
-    .hill1 { fill: #e7eae4; }
-    .hill2 { fill: #d3dbd1; }
-    .hill3 { fill: #becbbd; }
+    .moon { fill: #e6d9bc; stroke: #bfae8c; stroke-width: 1.5; }
+    .bird { stroke: #5f675f; }
+    .star { fill: #8f9b8d; }
+    .hill1 { fill: #c9d5c7; }
+    .hill2 { fill: #a9bba7; }
+    .hill3 { fill: #8aa189; }
     @media (prefers-color-scheme: dark) {
       .ink { fill: #e8e6e0; }
       .muted { fill: #8e938b; }
-      .moon { fill: #e9e6de; }
+      .moon { fill: #e9e6de; stroke: #b8b3a4; }
       .bird { stroke: #9aa396; }
-      .star { fill: #3f4a43; }
-      .hill1 { fill: #222a24; }
-      .hill2 { fill: #2c362d; }
-      .hill3 { fill: #384437; }
+      .star { fill: #55625a; }
+      .hill1 { fill: #232c26; }
+      .hill2 { fill: #2e3a30; }
+      .hill3 { fill: #3b4a3b; }
     }
     @keyframes breathe {
       0%, 100% { opacity: 1; }
