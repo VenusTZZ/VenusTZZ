@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HybridEngine 图捕获 · 从 CUDA 专属到加速器能力</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23E08A3C'/%3E%3Cpath d='M7 16V8h2v8H7zm4 0V8h2v8h-2zm4-5v5h-2v-5h2z' fill='%230E141B'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://miaoda.feishu.cn">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#0E141B; --bg2:#131C26; --card:#18222E; --card2:#1E2A38;
+  --line:#2A3947; --line2:#37495A;
+  --ink:#E8EDF3; --ink2:#9AA8B8; --ink3:#6B7A8B;
+  --amber:#E08A3C; --amber-soft:#F2B57E; --amber-dim:#3A2A1C;
+  --cyan:#4FB6C9; --cyan-soft:#84D0DE; --cyan-dim:#163038;
+  --green:#7FB069; --red:#D96A63; --purple:#9C84C9;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --disp:'Space Grotesk',-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+  --sans:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.7;font-size:15px;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+::selection{background:var(--amber);color:#111}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+h1,h2,h3,h4{font-family:var(--disp);line-height:1.25;font-weight:600}
+a{color:var(--cyan-soft);text-decoration:none}
+
+/* ---------- 顶部导航 ---------- */
+nav{position:sticky;top:0;z-index:50;background:rgba(14,20,27,.86);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.nav-in{max-width:1080px;margin:0 auto;padding:0 24px;height:58px;display:flex;align-items:center;gap:26px}
+.brand{font-family:var(--disp);font-weight:700;font-size:15px;letter-spacing:.2px;display:flex;align-items:center;gap:9px;white-space:nowrap}
+.brand .dot{width:11px;height:11px;border-radius:3px;background:var(--amber)}
+.nav-links{display:flex;gap:20px;margin-left:auto;overflow-x:auto}
+.nav-links a{color:var(--ink2);font-size:13.5px;white-space:nowrap;padding:4px 0}
+.nav-links a:hover{color:var(--amber-soft)}
+
+/* ---------- Hero ---------- */
+.hero{padding:84px 0 60px;position:relative;border-bottom:1px solid var(--line)}
+.grid-bg{position:absolute;inset:0;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:44px 44px;opacity:.28;mask-image:radial-gradient(ellipse 80% 70% at 50% 0%,#000 30%,transparent 75%)}
+.hero-in{position:relative}
+.tag{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12.5px;color:var(--amber-soft);border:1px solid var(--line2);background:var(--amber-dim);padding:5px 12px;border-radius:20px;margin-bottom:26px}
+.tag .pulse{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 0 rgba(224,138,60,.6);animation:pulse 2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 9px rgba(224,138,60,0)}100%{box-shadow:0 0 0 0 rgba(224,138,60,0)}}
+.hero h1{font-size:clamp(30px,5.4vw,52px);font-weight:700;letter-spacing:-.5px;margin-bottom:22px}
+.hero h1 .hl{color:var(--amber)}
+.hero p.lead{font-size:clamp(16px,2vw,19px);color:var(--ink2);max-width:760px}
+.hero-meta{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
+.meta-chip{font-family:var(--mono);font-size:12.5px;color:var(--ink2);border:1px solid var(--line);border-radius:8px;padding:8px 13px;background:var(--card)}
+.meta-chip b{color:var(--cyan-soft);font-weight:500}
+
+/* ---------- 通用 section ---------- */
+section.block{padding:72px 0;border-bottom:1px solid var(--line)}
+.sec-head{margin-bottom:38px;max-width:780px}
+.sec-no{font-family:var(--mono);font-size:13px;color:var(--amber);font-weight:600;display:block;margin-bottom:12px}
+.sec-head h2{font-size:clamp(24px,3.4vw,34px);margin-bottom:14px;letter-spacing:-.3px}
+.sec-head p{color:var(--ink2);font-size:16px}
+
+/* ---------- 卡片/面板 ---------- */
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px}
+.btn{font-family:var(--mono);font-size:13.5px;font-weight:500;border:1px solid var(--line2);background:var(--card2);color:var(--ink);padding:10px 20px;border-radius:9px;cursor:pointer;transition:.18s;min-height:44px;display:inline-flex;align-items:center;gap:8px}
+.btn:hover{border-color:var(--amber);color:var(--amber-soft)}
+.btn.primary{background:var(--amber);border-color:var(--amber);color:#1a1208;font-weight:600}
+.btn.primary:hover{background:var(--amber-soft);color:#1a1208}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+
+/* ---------- kernel 发射舞台 ---------- */
+.demo-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.stage{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:18px;min-height:300px;display:flex;flex-direction:column}
+.stage h4{font-size:14.5px;display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.stage .sub{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-bottom:14px}
+.chip-dot{width:9px;height:9px;border-radius:50%}
+.flow-area{flex:1;position:relative;border-radius:9px;background:#0C131B;border:1px solid var(--line);overflow:hidden;min-height:150px}
+.cpu-label,.dev-label{position:absolute;font-family:var(--mono);font-size:10.5px;color:var(--ink3);letter-spacing:.5px}
+.cpu-label{left:10px;top:8px}.dev-label{right:10px;top:8px}
+.kernel{position:absolute;height:13px;border-radius:3px;background:var(--cyan);opacity:.85;left:44px}
+.kernel.eager{background:linear-gradient(90deg,var(--cyan),var(--cyan-soft))}
+.replay-block{position:absolute;height:30px;border-radius:6px;left:44px;right:40px;background:linear-gradient(90deg,var(--amber),var(--amber-soft));display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:600;color:#1a1208;box-shadow:0 0 22px rgba(224,138,60,.35)}
+.stat-row{display:flex;gap:16px;margin-top:14px;flex-wrap:wrap}
+.stat{flex:1;min-width:90px}
+.stat .k{font-family:var(--mono);font-size:10.5px;color:var(--ink3);text-transform:uppercase;letter-spacing:.6px}
+.stat .v{font-family:var(--mono);font-size:19px;font-weight:600;color:var(--ink);margin-top:2px}
+.stat .v.amber{color:var(--amber-soft)}.stat .v.cyan{color:var(--cyan-soft)}.stat .v.green{color:var(--green)}
+.capture-note{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;font-family:var(--mono);font-size:12px;color:var(--amber-soft)}
+
+/* ---------- 门控对比 ---------- */
+.gate-toggle{display:inline-flex;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:4px;gap:4px;margin-bottom:24px}
+.gate-toggle button{font-family:var(--mono);font-size:13px;border:0;background:transparent;color:var(--ink2);padding:9px 18px;border-radius:7px;cursor:pointer;min-height:40px}
+.gate-toggle button.active{background:var(--card2);color:var(--amber-soft);box-shadow:inset 0 0 0 1px var(--line2)}
+.gate-flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.gnode{flex:1;min-width:130px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:16px;text-align:center;position:relative}
+.gnode .t{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-bottom:8px}
+.gnode .d{font-size:14px;font-weight:600;font-family:var(--disp)}
+.garrow{display:flex;align-items:center;justify-content:center;width:42px;color:var(--ink3);flex-shrink:0}
+.verdict{padding:14px 20px;border-radius:10px;font-family:var(--mono);font-size:13.5px;font-weight:600;margin-top:20px;display:flex;align-items:center;gap:10px}
+.verdict.bad{background:rgba(217,106,99,.12);border:1px solid rgba(217,106,99,.4);color:var(--red)}
+.verdict.good{background:rgba(127,176,105,.12);border:1px solid rgba(127,176,105,.4);color:var(--green)}
+.code-line{font-family:var(--mono);font-size:12.5px;background:#0B1118;border:1px solid var(--line);border-radius:8px;padding:13px 16px;margin-top:16px;overflow-x:auto;color:var(--ink2)}
+.code-line .cm{color:var(--ink3)}.code-line .kw{color:var(--purple)}.code-line .str{color:var(--green)}.code-line .fn{color:var(--cyan-soft)}
+
+/* ---------- 捕获流程时间线 ---------- */
+.step-track{display:grid;grid-template-columns:repeat(4,1fr);gap:0;position:relative;margin-bottom:30px}
+.step-track::before{content:"";position:absolute;top:23px;left:12%;right:12%;height:2px;background:var(--line)}
+.step-node{position:relative;z-index:2;text-align:center;padding:0 8px;cursor:pointer}
+.step-node .ring{width:46px;height:46px;border-radius:50%;background:var(--bg2);border:2px solid var(--line2);margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:600;font-size:15px;color:var(--ink3);transition:.2s}
+.step-node .lab{font-size:13px;font-weight:600;font-family:var(--disp);color:var(--ink2)}
+.step-node .mini{font-family:var(--mono);font-size:10.5px;color:var(--ink3);margin-top:3px}
+.step-node.active .ring{border-color:var(--amber);background:var(--amber-dim);color:var(--amber-soft);box-shadow:0 0 18px rgba(224,138,60,.3)}
+.step-node.done .ring{border-color:var(--green);background:rgba(127,176,105,.15);color:var(--green)}
+.step-node.active .lab{color:var(--ink)}
+.step-detail{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:24px;min-height:130px}
+.step-detail h4{font-size:16px;margin-bottom:8px;color:var(--amber-soft)}
+.step-detail p{color:var(--ink2);font-size:14.5px}
+.step-detail .code-line{margin-top:14px}
+
+/* ---------- NPU 难点 ---------- */
+.npu-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.stream-vis{position:relative;height:150px;background:#0B1118;border:1px solid var(--line);border-radius:9px;margin-top:16px;overflow:hidden}
+.stream-lane{position:absolute;left:0;right:0;height:34px;display:flex;align-items:center;padding-left:12px;font-family:var(--mono);font-size:11px}
+.stream-lane.main{top:18px;border-bottom:1px solid var(--line)}
+.stream-lane.sec{top:78px}
+.lane-name{color:var(--ink3);width:78px;flex-shrink:0}
+.lane-track{flex:1;position:relative;height:100%;display:flex;align-items:center;gap:5px}
+.mini-k{height:12px;border-radius:3px;flex-shrink:0}
+.err-badge{position:absolute;bottom:8px;left:12px;font-family:var(--mono);font-size:11px;font-weight:600}
+.err-badge.err{color:var(--red)}.err-badge.ok{color:var(--green)}
+.kv-vis{display:flex;gap:6px;flex-wrap:wrap;margin-top:16px}
+.kv-slot{width:40px;height:40px;border-radius:8px;border:1px solid var(--line2);background:var(--bg2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:var(--ink3)}
+.kv-slot.filled{background:var(--cyan-dim);border-color:var(--cyan);color:var(--cyan-soft)}
+.kv-slot.overflow{background:rgba(217,106,99,.15);border-color:var(--red);color:var(--red)}
+.kv-slot.grown{background:var(--amber-dim);border-color:var(--amber);color:var(--amber-soft)}
+
+/* ---------- 性能图表 ---------- */
+.chart-box{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:18px}
+.chart-box h4{font-size:14.5px;margin-bottom:4px}
+.chart-box .cs{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-bottom:10px}
+.echart{width:100%;height:280px}
+.result-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.rc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+.rc .big{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--amber-soft)}
+.rc .lab{font-size:12.5px;color:var(--ink2);margin-top:4px}
+
+/* ---------- 安全清单 ---------- */
+.safe-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.safe-item{display:flex;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:18px}
+.safe-ic{width:34px;height:34px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;font-size:14px}
+.safe-ic.no{background:rgba(217,106,99,.14);color:var(--red)}
+.safe-ic.yes{background:rgba(127,176,105,.14);color:var(--green)}
+.safe-item h4{font-size:14.5px;margin-bottom:3px}
+.safe-item p{font-size:13px;color:var(--ink2)}
+footer{padding:40px 0 60px;color:var(--ink3);font-size:13px;text-align:center}
+footer .mono{font-family:var(--mono)}
+
+/* ---------- 响应式 ---------- */
+@media (max-width:760px){
+  .demo-grid,.npu-grid,.safe-grid{grid-template-columns:1fr}
+  .step-track{grid-template-columns:1fr;gap:14px}
+  .step-track::before{display:none}
+  .result-cards{grid-template-columns:1fr 1fr}
+  .garrow{transform:rotate(90deg);width:100%;height:24px}
+  .gate-flow{flex-direction:column}
+  .nav-links{gap:15px}
+  section.block{padding:52px 0}
+}
+</style>
+</head>
+<body>
+<nav><div class="nav-in">
+  <div class="brand"><span class="dot"></span>DeepSpeed · PR #8933</div>
+  <div class="nav-links">
+    <a href="#why">瓶颈</a><a href="#gate">门控</a><a href="#flow">捕获流程</a>
+    <a href="#npu">NPU 难点</a><a href="#perf">性能</a><a href="#safe">安全</a>
+  </div>
+</div></nav>
+
+<header class="hero"><div class="grid-bg"></div><div class="wrap hero-in">
+  <span class="tag"><span class="pulse"></span>HybridEngine · Graph Capture · Accelerator Agnostic</span>
+  <h1>把图捕获从 <span class="hl">CUDA 专属</span> 变成<br>加速器的一项通用能力</h1>
+  <p class="lead">DeepSpeed HybridEngine 的推理解码受限于 CPU 发射开销，图捕获把上千次 kernel launch 压成一次 replay。但两条快路径被硬编码成 CUDA 专属，本页交互演示问题根因、捕获工作流，以及让昇腾 NPU 真正跑通的两个关键修复。</p>
+  <div class="hero-meta">
+    <span class="meta-chip">仓库 <b>deepspeedai/DeepSpeed</b></span>
+    <span class="meta-chip">状态 <b>已合入</b></span>
+    <span class="meta-chip">改动 <b>+178 / -66</b></span>
+    <span class="meta-chip">关联 issue <b>#8932</b></span>
+  </div>
+</div></header>
+
+<!-- ===== 区块 1：为什么需要图捕获 ===== -->
+<section class="block" id="why"><div class="wrap">
+  <div class="sec-head">
+    <span class="sec-no">01 / 瓶颈</span>
+    <h2>一个 decode step，瓶颈在 CPU 而不在设备</h2>
+    <p>自回归解码的每一步只新增一个 token，却要发射上千个小 kernel。设备上每个 kernel 都很短，设备算完了还在等 CPU 排下一个。图捕获把整段 forward 录下来，之后每步只做一次 replay。点击播放，对比同一个 decode step 的两种执行方式。</p>
+  </div>
+  <div class="controls" style="margin-bottom:22px">
+    <button class="btn primary" id="launchBtn">播放对比</button>
+    <button class="btn" id="resetBtn">重置</button>
+  </div>
+  <div class="demo-grid">
+    <div class="stage">
+      <h4><span class="chip-dot" style="background:var(--cyan)"></span>Eager 逐 kernel 发射</h4>
+      <div class="sub">CPU 逐个 launch，设备空等</div>
+      <div class="flow-area" id="eagerArea">
+        <span class="cpu-label">CPU</span><span class="dev-label">NPU</span>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="k">Kernel launches</div><div class="v cyan" id="eagerCount">0</div></div>
+        <div class="stat"><div class="k">本步耗时</div><div class="v" id="eagerTime">—</div></div>
+      </div>
+    </div>
+    <div class="stage">
+      <h4><span class="chip-dot" style="background:var(--amber)"></span>Graph 一次 replay</h4>
+      <div class="sub">先录制一次，之后整图重放</div>
+      <div class="flow-area" id="graphArea">
+        <span class="cpu-label">CPU</span><span class="dev-label">NPU</span>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="k">Kernel launches</div><div class="v amber" id="graphCount">0</div></div>
+        <div class="stat"><div class="k">本步耗时</div><div class="v" id="graphTime">—</div></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ===== 区块 2：名字门控 vs 能力门控 ===== -->
+<section class="block" id="gate"><div class="wrap">
+  <div class="sec-head">
+    <span class="sec-no">02 / 门控</span>
+    <h2>问题不在能力缺失，而在门控方式</h2>
+    <p>NPU 通过 torch_npu.NPUGraph 早就具备图捕获能力，但运行时用设备名字符串做判断，把 NPU 直接挡在外面。切换两种门控方式，观察同一块 NPU 的不同命运。</p>
+  </div>
+  <div class="gate-toggle">
+    <button id="gateOld" class="active">旧：名字门控</button>
+    <button id="gateNew">新：能力门控</button>
+  </div>
+  <div class="gate-flow" id="gateFlow"></div>
+  <div class="verdict" id="gateVerdict"></div>
+  <div class="code-line" id="gateCode"></div>
+</div></section>
+
+<!-- ===== 区块 3：捕获工作流程 ===== -->
+<section class="block" id="flow"><div class="wrap">
+  <div class="sec-head">
+    <span class="sec-no">03 / 工作流</span>
+    <h2>一张图如何被录制，又如何被重放</h2>
+    <p>点击节点或自动播放，走完图捕获的四个阶段。每个 decode 位置录一张图（序列偏移和注意力掩码宽度被烤进图里），之后该位置的每一步都重放同一张图。</p>
+  </div>
+  <div class="controls" style="margin-bottom:26px">
+    <button class="btn primary" id="flowPlay">自动播放</button>
+    <button class="btn" id="flowNext">下一步</button>
+  </div>
+  <div class="step-track" id="stepTrack">
+    <div class="step-node" data-i="0"><div class="ring">1</div><div class="lab">capture_begin</div><div class="mini">开启流捕获</div></div>
+    <div class="step-node" data-i="1"><div class="ring">2</div><div class="lab">录制 forward</div><div class="mini">kernel 写入图</div></div>
+    <div class="step-node" data-i="2"><div class="ring">3</div><div class="lab">capture_end</div><div class="mini">图定稿入库</div></div>
+    <div class="step-node" data-i="3"><div class="ring">4</div><div class="lab">replay 循环</div><div class="mini">每步一次重放</div></div>
+  </div>
+  <div class="step-detail" id="stepDetail"></div>
+</div></section>
+
+<!-- ===== 区块 4：NPU 两个关键修复 ===== -->
+<section class="block" id="npu"><div class="wrap">
+  <div class="sec-head">
+    <span class="sec-no">04 / NPU 难点</span>
+    <h2>门控打开后，真正要解决的是两个算子级问题</h2>
+    <p>这是整个适配中最需要底层定位能力的部分：一个是 CANN 对辅助流的捕获限制，一个是进程级计数器导致的 KV cache 越界。</p>
+  </div>
+  <div class="npu-grid">
+    <div class="panel">
+      <h4 style="font-size:16px">融合注意力：v1/v2 → v3</h4>
+      <p style="color:var(--ink2);font-size:13.5px;margin-top:8px">v1/v2 在内部辅助流上发射任务，CANN 在 capture_end 拒绝（错误 107025）。v3 不使用辅助流，BSH 布局下可干净捕获。</p>
+      <div class="controls" style="margin-top:14px">
+        <button class="btn" id="attnOld">v1 / v2</button>
+        <button class="btn" id="attnNew">v3</button>
+      </div>
+      <div class="stream-vis" id="streamVis"></div>
+    </div>
+    <div class="panel">
+      <h4 style="font-size:16px">KV cache 表按需扩容</h4>
+      <p style="color:var(--ink2);font-size:13.5px;margin-top:8px">layer_id 来自进程级只增计数器 num_layers。同一进程建第二个引擎时 layer_id 超出表长，改为按需 append。</p>
+      <div class="controls" style="margin-top:14px">
+        <button class="btn" id="kvStep">推进生命周期</button>
+        <button class="btn" id="kvReset">重置</button>
+      </div>
+      <div class="kv-vis" id="kvVis"></div>
+      <p style="font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:14px" id="kvCaption">点击按钮模拟引擎构建与 layer_id 增长</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- ===== 区块 5：性能验证 ===== -->
+<section class="block" id="perf"><div class="wrap">
+  <div class="sec-head">
+    <span class="sec-no">05 / 性能</span>
+    <h2>加速来自真实测量，且输出逐 token 对齐</h2>
+    <p>单卡 Ascend NPU 实测：图模式默认关闭、opt-in，首次捕获有一次性成本，之后全部 replay。所有场景都验证了图模式与 eager 的 token 一致性。</p>
+  </div>
+  <div class="chart-box">
+    <h4>Batch 扩展吞吐（opt-1.3b，ZeRO-2，FP16）</h4>
+    <div class="cs">batch 1 → 32，吞吐 140 → 1431 tok/s，32 倍 batch 下吞吐 10.2 倍</div>
+    <div class="echart" id="chartBatch"></div>
+  </div>
+  <div class="chart-box">
+    <h4>Eager vs Graph 延迟对比</h4>
+    <div class="cs">连续 rollout 中位延迟（gpt2，ms）与 RLHF generate 阶段（opt-1.3b，ms）</div>
+    <div class="echart" id="chartLatency"></div>
+  </div>
+  <div class="result-cards">
+    <div class="rc"><div class="big">2.62×</div><div class="lab">RLHF 整体迭代加速</div></div>
+    <div class="rc"><div class="big">5.97×</div><div class="lab">连续 rollout 解码加速</div></div>
+    <div class="rc"><div class="big">1024/1024</div><div class="lab">token 与 eager 完全一致</div></div>
+    <div class="rc"><div class="big">+0.10 GiB</div><div class="lab">显存开销（127 张图）</div></div>
+  </div>
+</div></section>
+
+<!-- ===== 区块 6：安全与兼容 ===== -->
+<section class="block" id="safe"><div class="wrap">
+  <div class="sec-head">
+    <span class="sec-no">06 / 安全</span>
+    <h2>正确性优先：该拒绝的场景一个不少</h2>
+    <p>原有拒绝逻辑全部保留并改为设备无关；运行时捕获失败自动回退 eager，而不是让任务崩溃或静默算错。</p>
+  </div>
+  <div class="safe-grid">
+    <div class="safe-item"><div class="safe-ic no">×</div><div><h4>ZeRO stage 3</h4><p>参数每次 gather 到新缓冲区，replay 旧图会静默算错</p></div></div>
+    <div class="safe-item"><div class="safe-ic no">×</div><div><h4>release_inference_cache</h4><p>工作区释放后，图写入的缓冲区已不存在</p></div></div>
+    <div class="safe-item"><div class="safe-ic no">×</div><div><h4>inference_tp_size &gt; 1</h4><p>推理张量并行下捕获图无法保持有效</p></div></div>
+    <div class="safe-item"><div class="safe-ic no">×</div><div><h4>生成长度不固定</h4><p>序列偏移与掩码宽度烤进图，换长度需重录</p></div></div>
+    <div class="safe-item"><div class="safe-ic yes">↺</div><div><h4>捕获失败回退 eager</h4><p>运行时后端报错自动禁用图，本序列改走 eager</p></div></div>
+    <div class="safe-item"><div class="safe-ic yes">≡</div><div><h4>旧配置项兼容</h4><p>enable_cuda_graph 作为废弃别名，值自动迁移并告警</p></div></div>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <p class="mono">DeepSpeed PR #8933 · fixes issue #8932 · author VenusTZZ</p>
+  <p style="margin-top:8px">能力门控替代名字门控 —— 任何实现 create_graph / capture_to_graph / replay_graph 的后端都共享同一条路径</p>
+</div></footer>
+
+<script src="https://fastly.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script>
+/* ============================================================
+   1. Eager vs Graph 发射对比（定性示意，真实数据见性能区）
+   ============================================================ */
+const TARGET_LAUNCHES=1000;
+let demoRunning=false;
+const eagerArea=document.getElementById('eagerArea'),
+      graphArea=document.getElementById('graphArea'),
+      eagerCount=document.getElementById('eagerCount'),
+      graphCount=document.getElementById('graphCount'),
+      eagerTime=document.getElementById('eagerTime'),
+      graphTime=document.getElementById('graphTime');
+
+function spawnKernel(area){
+  const k=document.createElement('div');k.className='kernel eager';
+  const top=42+Math.random()*Math.max(40,area.clientHeight-72);
+  k.style.top=top+'px';k.style.width=(13+Math.random()*15)+'px';
+  area.appendChild(k);
+  requestAnimationFrame(()=>{k.style.transition='left .55s linear';k.style.left=(area.clientWidth-52)+'px';});
+  setTimeout(()=>k.remove(),720);
+}
+function runEager(){
+  let n=0;
+  const t=setInterval(()=>{
+    n+=14;if(n>TARGET_LAUNCHES)n=TARGET_LAUNCHES;
+    eagerCount.textContent=n.toLocaleString();
+    spawnKernel(eagerArea);
+    if(n>=TARGET_LAUNCHES){clearInterval(t);eagerTime.textContent='发射瓶颈';eagerTime.className='v cyan';checkDone();}
+  },26);
+}
+function runGraph(){
+  const note=document.createElement('div');note.className='capture-note';note.textContent='首次录制中（一次性成本）…';
+  graphArea.appendChild(note);
+  setTimeout(()=>{
+    note.remove();
+    const blk=document.createElement('div');blk.className='replay-block';blk.textContent='GRAPH REPLAY';
+    blk.style.right='40px';blk.style.top='50%';blk.style.transform='translateY(-50%)';
+    graphArea.appendChild(blk);
+    requestAnimationFrame(()=>{blk.style.transition='left .5s linear';blk.style.left=(graphArea.clientWidth-40-blk.offsetWidth)+'px';});
+    graphCount.textContent='1';
+    setTimeout(()=>{graphTime.textContent='一次重放';graphTime.className='v green';checkDone();},560);
+  },1200);
+}
+let doneFlags=0;
+function checkDone(){doneFlags++;if(doneFlags>=2){demoRunning=false;document.getElementById('launchBtn').disabled=false;}}
+document.getElementById('launchBtn').addEventListener('click',()=>{
+  if(demoRunning)return;demoRunning=true;doneFlags=0;
+  resetDemo();
+  document.getElementById('launchBtn').disabled=true;
+  runEager();runGraph();
+});
+function resetDemo(){
+  eagerArea.querySelectorAll('.kernel,.capture-note,.replay-block').forEach(e=>e.remove());
+  graphArea.querySelectorAll('.kernel,.capture-note,.replay-block').forEach(e=>e.remove());
+  eagerCount.textContent='0';graphCount.textContent='0';
+  eagerTime.textContent='—';graphTime.textContent='—';
+  eagerTime.className='v';graphTime.className='v';
+}
+document.getElementById('resetBtn').addEventListener('click',()=>{resetDemo();demoRunning=false;document.getElementById('launchBtn').disabled=false;});
+
+/* ============================================================
+   2. 名字门控 vs 能力门控
+   ============================================================ */
+const gateData={
+  old:{nodes:[['NPU 推理请求','torch_npu'],['判断 device_name()','运行时门控'],['== "cuda" ?','字符串比较'],['结果：不匹配','NPU 被拒绝']],
+    bad:true,
+    verdict:'× 名字门控：NPU 明明具备 NPUGraph 能力，却因设备名不是 "cuda" 被静默排除，只能承受 eager 解码成本',
+    code:'<span class="cm"># 旧：按设备名字符串判断</span><br><span class="kw">if</span> get_accelerator().<span class="fn">device_name</span>() != <span class="str">"cuda"</span>:<br>&nbsp;&nbsp;<span class="kw">return</span> <span class="str">"CUDA graphs require the CUDA accelerator"</span>'},
+  new:{nodes:[['NPU 推理请求','torch_npu'],['调用 create_graph()','能力钩子'],['返回 NPUGraph ?','能力探测'],['结果：图对象存在','NPU 放行']],
+    bad:false,
+    verdict:'√ 能力门控：只问后端能否创建图，不关心设备叫什么名字，NPU 与 CUDA 走完全相同的路径',
+    code:'<span class="cm"># 新：按后端能力判断</span><br><span class="kw">if</span> get_accelerator().<span class="fn">create_graph</span>() <span class="kw">is</span> None:<br>&nbsp;&nbsp;<span class="kw">return</span> <span class="str">"graph capture is not supported on the current accelerator"</span>'}
+};
+function renderGate(mode){
+  const d=gateData[mode];
+  document.getElementById('gateFlow').innerHTML=d.nodes.map((n,i)=>
+    (i?'<div class="gararrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>':'')+
+    '<div class="gnode"><div class="t">'+n[1]+'</div><div class="d">'+n[0]+'</div></div>').join('');
+  const v=document.getElementById('gateVerdict');
+  v.className='verdict '+(d.bad?'bad':'good');v.textContent=d.verdict;
+  document.getElementById('gateCode').innerHTML=d.code;
+  document.getElementById('gateOld').classList.toggle('active',mode==='old');
+  document.getElementById('gateNew').classList.toggle('active',mode==='new');
+}
+document.getElementById('gateOld').addEventListener('click',()=>renderGate('old'));
+document.getElementById('gateNew').addEventListener('click',()=>renderGate('new'));
+renderGate('old');
+
+/* ============================================================
+   3. 捕获流程时间线
+   ============================================================ */
+const steps=[
+  {t:'capture_begin：在当前流上开启捕获',d:'告诉加速器进入图录制模式，此后该流上发射的 kernel 不再立即执行，而是被记录下来。',
+   c:'graph = accelerator.<span class="fn">create_graph</span>()<br>accelerator.<span class="fn">capture_to_graph</span>(graph, stream)'},
+  {t:'录制 forward：kernel 写入图',d:'跑一遍 decode forward，上千个 kernel 及其依赖被完整记录。此期间 DeepSpeedStaticCache 借 is_current_stream_capturing 跳过 host 侧边界检查。',
+   c:'<span class="kw">if</span> accelerator.<span class="fn">is_current_stream_capturing</span>():<br>&nbsp;&nbsp;skip_host_bounds_check()'},
+  {t:'capture_end：图定稿入库',d:'结束录制，图被保存到对应 decode 位置。序列偏移和注意力掩码宽度在此时烤进图，因此每个位置一张图、换长度需重录。',
+   c:'decode_graphs[position] = graph&nbsp;<span class="cm"># 按位置缓存</span>'},
+  {t:'replay 循环：每步一次重放',d:'之后该位置的每个 decode step 不再发射上千 kernel，只重放一次图，输出与 eager 逐 token 一致。',
+   c:'accelerator.<span class="fn">replay_graph</span>(graph)&nbsp;<span class="cm"># 一次重放替代上千次 launch</span>'}
+];
+let curStep=-1,flowTimer=null;
+function showStep(i){
+  curStep=i;
+  document.querySelectorAll('.step-node').forEach((n,idx)=>{
+    n.classList.toggle('active',idx===i);n.classList.toggle('done',idx<i);});
+  const s=steps[i];
+  document.getElementById('stepDetail').innerHTML='<h4>'+s.t+'</h4><p>'+s.d+'</p><div class="code-line">'+s.c+'</div>';
+}
+document.querySelectorAll('.step-node').forEach(n=>n.addEventListener('click',()=>{clearInterval(flowTimer);showStep(+n.dataset.i);}));
+document.getElementById('flowNext').addEventListener('click',()=>{clearInterval(flowTimer);showStep((curStep+1)%4);});
+document.getElementById('flowPlay').addEventListener('click',()=>{
+  clearInterval(flowTimer);let i=curStep<0?0:(curStep+1)%4;showStep(i);
+  flowTimer=setInterval(()=>{i=(i+1)%4;showStep(i);},1900);
+});
+showStep(0);
+
+/* ============================================================
+   4a. NPU 注意力流可视化
+   ============================================================ */
+function renderStream(useV3){
+  const vis=document.getElementById('streamVis');
+  const mk=(lane,color,count)=>Array.from({length:count},()=>'<div class="mini-k" style="width:'+(16+Math.random()*22)+'px;background:'+color+'"></div>').join('');
+  let html='<div class="stream-lane main"><span class="lane-name">主流</span><div class="lane-track">'+mk('m','var(--cyan)',useV3?9:5)+'</div></div>';
+  if(!useV3){
+    html+='<div class="stream-lane sec"><span class="lane-name">辅助流</span><div class="lane-track">'+mk('s','var(--purple)',4)+'</div></div>';
+    html+='<div class="err-badge err">× 107025：捕获图含未 join 回主流的流，capture_end 被拒</div>';
+  }else{
+    html+='<div class="err-badge ok">√ 全部任务在主流上，BSH 布局干净捕获</div>';
+  }
+  vis.innerHTML=html;
+}
+document.getElementById('attnOld').addEventListener('click',()=>renderStream(false));
+document.getElementById('attnNew').addEventListener('click',()=>renderStream(true));
+renderStream(false);
+
+/* ============================================================
+   4b. KV cache 生命周期
+   ============================================================ */
+let kvLayer=0, kvTotal=4, kvPhase=0;
+const kvCap=document.getElementById('kvCaption');
+function renderKV(){
+  const vis=document.getElementById('kvVis');let html='';
+  for(let i=0;i<kvTotal;i++){
+    let cls='kv-slot';
+    if(i<4)cls+=' filled';
+    else if(i<kvTotal)cls+=' grown';
+    html+='<div class="'+cls+'">L'+i+'</div>';
+  }
+  if(kvLayer>=kvTotal){
+    html+='<div class="kv-slot overflow">L'+kvLayer+' !</div>';
+  }
+  vis.innerHTML=html;
+}
+document.getElementById('kvStep').addEventListener('click',()=>{
+  if(kvPhase===0){kvLayer=4;kvCap.textContent='引擎 1 构建完成：4 层，表长 4（filled）';kvPhase=1;renderKV();return;}
+  if(kvLayer>=kvTotal){
+    kvCap.textContent='引擎 2：layer_id='+kvLayer+' 超出表长 → 触发按需扩容（grown）';
+    kvTotal=kvLayer+1;renderKV();
+  }else{
+    kvLayer++;
+    if(kvLayer>=kvTotal){renderKV();return;}
+    kvCap.textContent='引擎 2 构建中：进程级计数器 layer_id 增长到 '+kvLayer;renderKV();
+  }
+});
+document.getElementById('kvReset').addEventListener('click',()=>{kvLayer=0;kvTotal=4;kvPhase=0;kvCap.textContent='点击按钮模拟引擎构建与 layer_id 增长';renderKV();});
+renderKV();
+
+/* ============================================================
+   5. ECharts 性能图
+   ============================================================ */
+const axisStyle={axisLine:{lineStyle:{color:'#37495A'}},axisLabel:{color:'#9AA8B8',fontFamily:'IBM Plex Mono'},splitLine:{lineStyle:{color:'#1E2A38'}}};
+const c1=echarts.init(document.getElementById('chartBatch'));
+c1.setOption({
+  grid:{left:54,right:24,top:30,bottom:40},
+  tooltip:{trigger:'axis',backgroundColor:'#18222E',borderColor:'#37495A',textStyle:{color:'#E8EDF3'}},
+  xAxis:{type:'category',data:['1','4','8','16','32'],name:'batch',nameTextStyle:{color:'#6B7A8B'},...axisStyle},
+  yAxis:{type:'value',name:'tok/s',nameTextStyle:{color:'#6B7A8B'},...axisStyle},
+  series:[{type:'bar',data:[140,368,652,1015,1431],barWidth:'52%',
+    itemStyle:{borderRadius:[5,5,0,0],color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'#F2B57E'},{offset:1,color:'#E08A3C'}])},
+    label:{show:true,position:'top',color:'#F2B57E',fontFamily:'IBM Plex Mono',fontSize:11}}]
+});
+const c2=echarts.init(document.getElementById('chartLatency'));
+c2.setOption({
+  grid:{left:64,right:24,top:46,bottom:40},
+  legend:{textStyle:{color:'#9AA8B8'},top:6},
+  tooltip:{trigger:'axis',backgroundColor:'#18222E',borderColor:'#37495A',textStyle:{color:'#E8EDF3'}},
+  xAxis:{type:'category',data:['连续 rollout (gpt2)','RLHF generate (opt-1.3b)'],...axisStyle,axisLabel:{color:'#9AA8B8',interval:0}},
+  yAxis:{type:'value',name:'ms',nameTextStyle:{color:'#6B7A8B'},...axisStyle},
+  series:[
+    {name:'Eager',type:'bar',data:[1060.44,5436.0],barWidth:'34%',itemStyle:{borderRadius:[5,5,0,0],color:'#D96A63'}},
+    {name:'Graph',type:'bar',data:[177.59,1578.4],barWidth:'34%',itemStyle:{borderRadius:[5,5,0,0],color:'#E08A3C'}}
+  ]
+});
+window.addEventListener('resize',()=>{c1.resize();c2.resize();});
+</script>
+</body>
+</html>

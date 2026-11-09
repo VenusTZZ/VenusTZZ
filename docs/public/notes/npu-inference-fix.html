@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NPU 推理修复交互解析 · DeepSpeed PR #8776</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E141B'/%3E%3Cpath d='M9 22V10l7 7 7-7v12' stroke='%233FB6E8' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://miaoda.feishu.cn/fonts">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://fastly.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+:root{
+  --bg:#0B0F14; --panel:#121A24; --panel2:#0F161E; --line:#22303F; --line2:#2C3D4E;
+  --txt:#E7EEF5; --sub:#96A5B4; --faint:#5F6E7D;
+  --rope:#3FB6E8; --rope-dim:#1C3A4C; --kv:#F2A93B; --kv-dim:#4A3717;
+  --bad:#F0616D; --good:#46C98B; --violet:#9D8DF1;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --sans:'IBM Plex Sans',-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+  --display:'Space Grotesk','IBM Plex Sans',-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+::selection{background:rgba(63,182,232,.28)}
+a{color:var(--rope);text-decoration:none}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+.mono{font-family:var(--mono)}
+
+/* ---------- 顶部导航 ---------- */
+nav{position:sticky;top:0;z-index:50;background:rgba(11,15,20,.86);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.nav-inner{max-width:1120px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:22px}
+.brand{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.2px;display:flex;align-items:center;gap:9px;white-space:nowrap}
+.brand .chip{width:22px;height:22px}
+.nav-links{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.nav-links a{color:var(--sub);font-size:13.5px;padding:6px 11px;border-radius:7px;font-family:var(--mono);transition:.18s}
+.nav-links a:hover{color:var(--txt);background:var(--panel)}
+.nav-links a .h{color:var(--faint);margin-right:5px}
+
+/* ---------- Hero ---------- */
+header.hero{position:relative;padding:84px 0 64px;border-bottom:1px solid var(--line);overflow:hidden}
+.grid-bg{position:absolute;inset:0;background-image:linear-gradient(rgba(63,182,232,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(63,182,232,.055) 1px,transparent 1px);background-size:46px 46px;mask-image:radial-gradient(ellipse 85% 75% at 50% 0%,#000 35%,transparent 100%)}
+.hero .wrap{position:relative}
+.tagline{font-family:var(--mono);font-size:13px;color:var(--rope);letter-spacing:1px;margin-bottom:20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tagline .pr{border:1px solid var(--line2);padding:3px 9px;border-radius:6px;background:var(--panel)}
+.tagline .merged{color:var(--good)}
+h1{font-family:var(--display);font-size:clamp(30px,5.2vw,52px);line-height:1.12;font-weight:700;letter-spacing:-.5px;max-width:17ch}
+h1 .accent-rope{color:var(--rope)} h1 .accent-kv{color:var(--kv)}
+.hero-sub{color:var(--sub);font-size:16.5px;max-width:62ch;margin-top:22px}
+.hero-sub strong{color:var(--txt);font-weight:600}
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:42px}
+.stat{border:1px solid var(--line);background:linear-gradient(180deg,var(--panel),var(--panel2));border-radius:12px;padding:18px 18px 16px}
+.stat .num{font-family:var(--display);font-size:30px;font-weight:700;line-height:1}
+.stat .num.rope{color:var(--rope)} .stat .num.kv{color:var(--kv)} .stat .num.good{color:var(--good)}
+.stat .lbl{color:var(--sub);font-size:13px;margin-top:9px;line-height:1.45}
+.hero-meta{margin-top:26px;font-family:var(--mono);font-size:12.5px;color:var(--faint);display:flex;gap:18px;flex-wrap:wrap}
+
+/* ---------- 通用 section ---------- */
+section{padding:70px 0;border-bottom:1px solid var(--line)}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;flex-wrap:wrap}
+.sec-no{font-family:var(--mono);color:var(--faint);font-size:13px;border:1px solid var(--line2);border-radius:6px;padding:2px 8px}
+h2{font-family:var(--display);font-size:clamp(23px,3.4vw,32px);font-weight:700;letter-spacing:-.3px}
+.sec-desc{color:var(--sub);max-width:70ch;margin:14px 0 34px;font-size:15.5px}
+.sec-desc strong{color:var(--txt)}
+h3{font-family:var(--display);font-size:18px;font-weight:600;margin-bottom:12px}
+h3 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:9px;vertical-align:1px}
+h3 .dot.r{background:var(--rope)} h3 .dot.k{background:var(--kv)}
+p.lead{color:var(--sub);font-size:14.5px;margin-bottom:16px}
+p.lead strong{color:var(--txt)}
+
+/* ---------- 卡片/面板 ---------- */
+.card{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:24px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.pill{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:5px;letter-spacing:.3px}
+.pill.bad{background:rgba(240,97,109,.14);color:var(--bad);border:1px solid rgba(240,97,109,.32)}
+.pill.good{background:rgba(70,201,139,.13);color:var(--good);border:1px solid rgba(70,201,139,.3)}
+.pill.rope{background:rgba(63,182,232,.12);color:var(--rope);border:1px solid rgba(63,182,232,.3)}
+.pill.kv{background:rgba(242,169,59,.13);color:var(--kv);border:1px solid rgba(242,169,59,.32)}
+
+/* ---------- 阶段切换（prompt/decode） ---------- */
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:9px;padding:4px;gap:4px;background:var(--panel2)}
+.seg button{font-family:var(--mono);font-size:13px;color:var(--sub);background:transparent;border:0;padding:8px 18px;border-radius:6px;cursor:pointer;transition:.18s}
+.seg button.active{background:var(--line2);color:var(--txt)}
+.flow-diagram{margin-top:22px}
+.frow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.fnode{flex:1;min-width:120px;border:1px solid var(--line2);border-radius:10px;padding:14px 14px;background:var(--panel2);text-align:center;position:relative}
+.fnode .t{font-family:var(--mono);font-size:12.5px;color:var(--txt);font-weight:600}
+.fnode .d{font-size:12px;color:var(--faint);margin-top:5px;line-height:1.4}
+.farrow{display:flex;align-items:center;padding:0 7px;color:var(--faint)}
+.fnode.hl-rope{border-color:var(--rope);box-shadow:inset 0 0 0 1px rgba(63,182,232,.25)}
+.fnode.hl-kv{border-color:var(--kv);box-shadow:inset 0 0 0 1px rgba(242,169,59,.25)}
+.phase-note{margin-top:18px;border-left:3px solid var(--line2);padding:4px 0 4px 16px;color:var(--sub);font-size:14px}
+.phase-note b{color:var(--txt)}
+
+/* ---------- 通用控件 ---------- */
+input[type=range]{width:100%;height:4px;-webkit-appearance:none;background:var(--line2);border-radius:4px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--rope);cursor:pointer;border:3px solid var(--bg);box-shadow:0 0 0 1px var(--rope)}
+input[type=range].kv::-webkit-slider-thumb{background:var(--kv);box-shadow:0 0 0 1px var(--kv)}
+.btn{font-family:var(--mono);font-size:13px;border:1px solid var(--line2);background:var(--panel2);color:var(--txt);padding:9px 16px;border-radius:8px;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;gap:8px}
+.btn:hover{border-color:var(--faint);background:var(--line)}
+.btn.primary{border-color:rgba(63,182,232,.5);color:var(--rope)}
+.btn.primary:hover{background:rgba(63,182,232,.1)}
+.btn.kv{border-color:rgba(242,169,59,.5);color:var(--kv)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.toggle-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.code-inline{font-family:var(--mono);font-size:12.5px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--rope)}
+.code-inline.k{color:var(--kv)}
+
+/* ---------- RoPE 旋转演示 ---------- */
+.canvas-box{position:relative;background:var(--panel2);border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.canvas-box canvas{display:block;width:100%}
+.ctrl-block{margin-top:16px}
+.ctrl-block .lab-row{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:var(--sub);margin-bottom:9px}
+.ctrl-block .lab-row b{color:var(--rope);font-weight:600}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+.readout .cell{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:11px 12px}
+.readout .cell .k{font-size:11.5px;color:var(--faint);font-family:var(--mono)}
+.readout .cell .v{font-family:var(--mono);font-size:15px;margin-top:4px;color:var(--txt)}
+.switch-fix{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:13px;color:var(--sub);cursor:pointer;user-select:none}
+.switch-fix input{accent-color:var(--bad);width:16px;height:16px;cursor:pointer}
+.bugcallout{border-radius:9px;padding:12px 14px;font-size:13.5px;line-height:1.55;margin-top:14px}
+.bugcallout.bad{background:rgba(240,97,109,.09);border:1px solid rgba(240,97,109,.3);color:#F4A3AA}
+.bugcallout.good{background:rgba(70,201,139,.08);border:1px solid rgba(70,201,139,.28);color:#8EDDB4}
+.bugcallout b{font-family:var(--mono)}
+
+/* 配对可视化 */
+.pair-svg{width:100%;height:auto;display:block}
+.pair-cell{fill:var(--panel2);stroke:var(--line2);stroke-width:1.4}
+.pair-cell.lit{fill:var(--rope-dim);stroke:var(--rope)}
+.pair-text{fill:var(--sub);font-family:var(--mono);font-size:13px;text-anchor:middle;dominant-baseline:central}
+.pair-text.lit{fill:var(--rope)}
+.pair-line{fill:none;stroke-width:2;opacity:0}
+.pair-line.show{opacity:1}
+.pair-line.il{stroke:var(--rope)} .pair-line.hf{stroke:var(--violet)}
+
+/* bug 列表 */
+.buglist{display:flex;flex-direction:column;gap:12px}
+.bugitem{border:1px solid var(--line);border-radius:11px;padding:16px 18px;background:var(--panel2);display:flex;gap:15px}
+.bugitem .idx{font-family:var(--display);font-size:22px;font-weight:700;color:var(--bad);line-height:1.2;min-width:34px}
+.bugitem .body-txt{font-size:14px;color:var(--sub)}
+.bugitem .body-txt b{color:var(--txt);font-weight:600;display:block;margin-bottom:3px;font-size:14.5px}
+.bugitem.fixed{border-color:rgba(70,201,139,.25)}
+.bugitem.fixed .idx{color:var(--good)}
+
+/* ---------- KV 动画 ---------- */
+.kv-stage{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:22px;min-height:300px}
+.kv-buf{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+.kv-slot{width:34px;height:34px;border:1.5px dashed var(--line2);border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:var(--faint);transition:.25s;position:relative}
+.kv-slot.filled{border-style:solid;border-color:rgba(242,169,59,.55);background:rgba(242,169,59,.14);color:var(--kv)}
+.kv-slot.newwrite{border-color:var(--kv);background:var(--kv);color:#1A1206;transform:scale(1.12);box-shadow:0 0 16px rgba(242,169,59,.45)}
+.kv-slot.copy{border-color:var(--bad);background:rgba(240,97,109,.18);color:var(--bad)}
+.kv-slot.grow{border-color:var(--violet);border-style:solid}
+.kv-legend{display:flex;gap:18px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--sub);margin-top:8px}
+.kv-legend span{display:flex;align-items:center;gap:7px}
+.kv-legend i{width:13px;height:13px;border-radius:4px;display:inline-block}
+.meter{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+.meter .m{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:13px 15px}
+.meter .m .k{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+.meter .m .v{font-family:var(--mono);font-size:19px;margin-top:5px;font-weight:600}
+.meter .m .v.bad{color:var(--bad)} .meter .m .v.good{color:var(--good)}
+
+/* ---------- 工作流步进 ---------- */
+.stepper{display:flex;flex-direction:column;gap:0;margin-top:8px}
+.step{display:grid;grid-template-columns:52px 1fr;gap:18px;position:relative;padding-bottom:26px}
+.step:last-child{padding-bottom:0}
+.step::before{content:'';position:absolute;left:25px;top:34px;bottom:0;width:2px;background:var(--line2)}
+.step:last-child::before{display:none}
+.step .ball{width:52px;height:52px;border-radius:50%;border:1.5px solid var(--line2);background:var(--panel2);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;color:var(--faint);font-size:17px;z-index:1;transition:.25s}
+.step.active .ball{border-color:var(--rope);color:var(--rope);box-shadow:0 0 0 5px rgba(63,182,232,.12)}
+.step.done .ball{border-color:var(--good);color:var(--good);background:rgba(70,201,139,.08)}
+.step .stxt h4{font-family:var(--display);font-size:16px;font-weight:600;margin-bottom:5px}
+.step .stxt p{color:var(--sub);font-size:14px}
+.step .stxt .mono{font-size:12.5px;color:var(--faint);margin-top:6px;display:block}
+.step.active .stxt h4{color:var(--rope)}
+.step-ctrl{display:flex;gap:12px;align-items:center;margin-top:26px;flex-wrap:wrap}
+.step-count{font-family:var(--mono);font-size:13px;color:var(--sub)}
+
+/* ---------- 图表/结果 ---------- */
+.chart{width:100%;height:340px}
+.chart-card{padding:20px 20px 10px}
+.verify{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.verify .vbox{border:1px solid var(--line);border-radius:11px;padding:20px;background:var(--panel2)}
+.verify .vbox .big{font-family:var(--display);font-size:26px;font-weight:700}
+.verify .vbox .k{font-size:13.5px;color:var(--sub);margin-top:6px}
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}
+.tbl th,.tbl td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line)}
+.tbl th{font-family:var(--mono);font-size:12px;color:var(--faint);font-weight:500}
+.tbl td.mono{font-family:var(--mono)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .sp{color:var(--good);font-family:var(--mono);font-weight:600}
+footer{padding:40px 0 54px;color:var(--faint);font-size:13px;font-family:var(--mono)}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media (max-width:860px){
+  .hero-stats{grid-template-columns:repeat(2,1fr)}
+  .grid2,.grid3,.verify{grid-template-columns:1fr}
+  .nav-links{display:none}
+  .farrow{transform:rotate(90deg);padding:6px 0;width:100%;justify-content:center}
+  .frow{flex-direction:column}
+  .meter{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <div class="brand">
+      <svg class="chip" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#121A24"/><path d="M9 22V10l7 7 7-7v12" stroke="#3FB6E8" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      NPU 推理修复 · PR #8776
+    </div>
+    <div class="nav-links">
+      <a href="#background"><span class="h">01</span>背景</a>
+      <a href="#rope"><span class="h">02</span>RoPE</a>
+      <a href="#kv"><span class="h">03</span>KV Cache</a>
+      <a href="#workflow"><span class="h">04</span>工作流</a>
+      <a href="#results"><span class="h">05</span>结果</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="wrap">
+    <div class="tagline">
+      <span class="pr">deepspeedai/DeepSpeed #8776</span>
+      <span class="merged">● 已合并 · 2026-10-16</span>
+      <span>op_builder/npu/inference.py</span>
+    </div>
+    <h1>昇腾 NPU 推理路径上的<span class="accent-rope">旋转位置编码</span>与<span class="accent-kv">KV 缓存</span>修复</h1>
+    <p class="hero-sub">两个<strong>静默正确性 bug</strong>——代码不报错、能跑，但每个 token 的位置旋转是错的；叠加一个 O(n²) 的缓存重建性能问题。修复后真实 Qwen3-4B 上 32 个生成 token 与 Hugging Face 参考完全一致。</p>
+    <div class="hero-stats">
+      <div class="stat"><div class="num">7</div><div class="lbl">定位并修复的缺陷（RoPE 5 + KV 2）</div></div>
+      <div class="stat"><div class="num good">32/32</div><div class="lbl">生成 token 与 HF 参考一致</div></div>
+      <div class="stat"><div class="num kv">2.4×</div><div class="lbl">32k 上下文整体 decode 提速</div></div>
+      <div class="stat"><div class="num kv">10.6×</div><div class="lbl">KV 存储路径单独提速（n=32k）</div></div>
+    </div>
+    <div class="hero-meta">
+      <span>硬件 2× Ascend 910B4 (64GB HBM)</span><span>torch_npu 2.10</span><span>CANN 8.5.1</span><span>模型 Qwen3-4B · 36层 · GQA 8/32 · fp16</span>
+    </div>
+  </div>
+</header>
+
+<!-- ===== 视图：背景 ===== -->
+<section id="background">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">01</span><h2>先理解推理的两个阶段</h2></div>
+    <p class="sec-desc">大模型自回归推理分两段：<strong>Prompt 阶段</strong>一次性处理整段输入，<strong>Decode 阶段</strong>每次只生成一个新 token，反复循环。这个 PR 的 bug 恰好分别藏在这两段里。点击切换观察两条数据路径。</p>
+    <div class="seg" id="phaseSeg">
+      <button class="active" data-phase="prompt">Prompt 阶段（seq_len &gt; 1）</button>
+      <button data-phase="decode">Decode 阶段（seq_len = 1）</button>
+    </div>
+    <div class="flow-diagram card" style="margin-top:20px">
+      <div class="frow" id="phaseFlow"></div>
+      <div class="phase-note" id="phaseNote"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 视图：RoPE ===== -->
+<section id="rope">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">02</span><h2>RoPE：给每个位置施加不同的旋转</h2></div>
+    <p class="sec-desc">旋转位置编码把 Q/K 向量按相邻元素两两分组，每组视为一个二维向量，旋转一个<strong>随位置增大的角度</strong>。位置越靠后，转得越多——这正是模型感知"第几个 token"的方式。下面的演示取第 0 对频率，角度（弧度）≈ 位置 × 逆频率。</p>
+
+    <div class="grid2">
+      <div class="card">
+        <h3><span class="dot r"></span>交互式旋转演示</h3>
+        <div class="canvas-box"><canvas id="ropeCanvas" width="520" height="380"></canvas></div>
+        <div class="ctrl-block">
+          <div class="lab-row"><span>token 位置 position</span><b id="posVal">0</b></div>
+          <input type="range" id="posSlider" min="0" max="100" value="0" step="1">
+        </div>
+        <div class="ctrl-block">
+          <label class="switch-fix"><input type="checkbox" id="bugToggle"> 模拟修复前：seq_offset 被忽略</label>
+        </div>
+        <div class="readout">
+          <div class="cell"><div class="k">实际旋转角 θ</div><div class="v" id="outAngle">0.00 rad</div></div>
+          <div class="cell"><div class="k">cos θ</div><div class="v" id="outCos">1.000</div></div>
+          <div class="cell"><div class="k">sin θ</div><div class="v" id="outSin">0.000</div></div>
+        </div>
+        <div class="bugcallout good" id="ropeCallout">修复后：角度随位置正确变化，decode token 拿到自己的绝对位置。</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="card">
+          <h3><span class="dot r"></span>元素配对：两种布局不能混用</h3>
+          <p class="lead">cos/sin 表的排布方式决定了<strong>哪两个元素配成一对旋转</strong>。表是交错布局却用对半模式，配对就会错位。</p>
+          <div class="seg" id="pairSeg" style="margin-bottom:6px">
+            <button class="active" data-pair="il">interleave（交错）</button>
+            <button data-pair="hf">rotate_half（对半）</button>
+          </div>
+          <svg class="pair-svg" viewBox="0 0 460 170" id="pairSvg" aria-label="元素配对示意"></svg>
+          <p class="lead" id="pairNote" style="margin-top:10px;margin-bottom:0"></p>
+        </div>
+        <div class="card">
+          <h3><span class="dot r"></span>逆频率缓存</h3>
+          <p class="lead" style="margin-bottom:10px">逆频率只与 <span class="code-inline">rotary_dim</span> 和 <span class="code-inline">rope_theta</span> 有关，与序列长度无关。旧实现每次 forward 都用 float64 重算整条 pow 链并做 H2D 拷贝；新实现按 <span class="code-inline">(rotary_dim, theta, device)</span> 缓存为 fp32，每次只做 arange+偏移、外积、sin/cos。</p>
+          <div class="toggle-row"><span class="pill bad">旧：float64 每步重算</span><span class="pill good">新：fp32 缓存 · 1.3× 提速</span></div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin:38px 0 16px"><span class="dot r"></span>RoPE 路径上的 5 个问题与修复</h3>
+    <div class="buglist">
+      <div class="bugitem"><div class="idx">1</div><div class="body-txt"><b>Decode 旋转位置恒为 0</b><span class="code-inline">seq_offset</span> 被接收但从未使用，每个生成 token 都用位置 0 的角度。证据：offset 填 0 与 100 输出完全相同。<br><span class="pill good" style="margin-top:8px">修复：位置由 KV 缓冲行数 kv_len 驱动，单一事实来源</span></div></div>
+      <div class="bugitem"><div class="idx">2</div><div class="body-txt"><b>Prompt 阶段元素配对错乱</b>调 npu_rotary_mul 未传 rotary_mode，默认 half 配对，但 cos/sin 是 repeat_interleave(2) 的交错表。<br><span class="pill good" style="margin-top:8px">修复：显式传 'interleave' 模式匹配表布局</span></div></div>
+      <div class="bugitem"><div class="idx">3</div><div class="body-txt"><b>缺少 advance_tokens()</b>CUDA csrc 在最后一层后递增 token 计数，NPU 侧没有，soft_len 一直停在 prompt 长度。<br><span class="pill good" style="margin-top:8px">修复：最后一层 forward 后调用 advance_tokens()</span></div></div>
+      <div class="bugitem"><div class="idx">4</div><div class="body-txt"><b>rotate_half 分支完全缺失</b>HF 风格对半旋转（Llama/GPT-NeoX/InternLM 类）在 NPU 上静默失效，等于 RoPE 白做。<br><span class="pill good" style="margin-top:8px">修复：新增对半分支，j 与 j+dim/2 配对，复用同一 inv_freq</span></div></div>
+      <div class="bugitem"><div class="idx">5</div><div class="body-txt"><b>角度每次 forward 重算</b>完整 float64 pow 链 + 每次 H2D 拷贝，无缓存。<br><span class="pill good" style="margin-top:8px">修复：fp32 inv_freq 缓存，对齐 v2 推理模式</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 视图：KV Cache ===== -->
+<section id="kv">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">03</span><h2>KV Cache：从 O(n²) 重建到 O(1) 单行写入</h2></div>
+    <p class="sec-desc">注意力需要历史所有 token 的 K 和 V。旧实现每生成一个 token 就 <span class="code-inline k">torch.cat</span> 一次，重新分配并拷贝整段历史，再做一次 BSH 布局的 contiguous 全量拷贝。新实现预分配缓冲，直接存 attention 算子消费的布局，decode 只写一行、读取零拷贝。点击按钮单步观察差异。</p>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="toggle-row" style="justify-content:space-between">
+          <h3 style="margin:0"><span class="dot k"></span>缓存写入动画</h3>
+          <div class="seg" id="kvSeg">
+            <button data-kv="old">旧 · torch.cat</button>
+            <button class="active" data-kv="new">新 · 预分配</button>
+          </div>
+        </div>
+        <div class="kv-stage" style="margin-top:16px">
+          <div class="kv-buf" id="kvBuf"></div>
+          <div class="kv-legend">
+            <span><i style="background:rgba(242,169,59,.4);border:1px solid var(--kv)"></i>已缓存</span>
+            <span><i style="background:var(--kv)"></i>本步写入</span>
+            <span><i style="background:rgba(240,97,109,.4);border:1px solid var(--bad)"></i>全量拷贝</span>
+            <span><i style="background:rgba(157,141,241,.35);border:1px solid var(--violet)"></i>几何扩容</span>
+          </div>
+          <div class="meter">
+            <div class="m"><div class="k">本步拷贝的行数</div><div class="v" id="mStep">0</div></div>
+            <div class="m"><div class="k">累计拷贝量（整条序列）</div><div class="v" id="mTotal">0</div></div>
+          </div>
+        </div>
+        <div class="toggle-row" style="margin-top:16px">
+          <button class="btn kv" id="kvNext">生成下一个 token</button>
+          <button class="btn" id="kvReset">重置</button>
+        </div>
+        <p class="lead" id="kvNote" style="margin-top:14px;margin-bottom:0"></p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="card">
+          <h3><span class="dot k"></span>容量策略：几何增长</h3>
+          <p class="lead">CUDA op 构造时即按 max_out_tokens 一次性分配；NPU op 是静态函数、构造时拿不到配置，且长上下文一开始就吃满显存代价太大。因此按需扩容：容量不够就翻倍，扩容拷贝摊销为 O(1)；prompt 阶段预留 <span class="code-inline k">min(2P, P+2048)</span> 头部空间，避免第一个 decode 就触发整段拷贝。复用时校验 shape/dtype/device，而不只是长度。</p>
+        </div>
+        <div class="card">
+          <h3><span class="dot k"></span>GQA reshape 用错头数</h3>
+          <p class="lead">K/V 携带的是 <strong>KV 头数</strong>而非 query 头数。旧代码用 <span class="code-inline k">heads</span> 去 reshape，GQA（num_kv &lt; heads）下元素数碰巧能整除时不报错，直接把 head 维度静默打乱。</p>
+          <div class="toggle-row"><span class="pill bad">旧：reshape(..., heads)</span><span class="pill good">新：reshape(..., num_kv)</span></div>
+        </div>
+        <div class="card">
+          <h3><span class="dot k"></span>布局对齐</h3>
+          <p class="lead" style="margin-bottom:10px">缓冲直接存 <span class="code-inline k">[bsz, cap, num_kv_heads × head_dim]</span>（BSH），attention 读 <span class="code-inline k">[:, :kv_len]</span> 零拷贝视图；返回给调用方的是 <span class="code-inline k">[bsz, heads, len, head_dim]</span> 转置视图，语义与 CUDA workspace 张量一致。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 视图：工作流 ===== -->
+<section id="workflow">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">04</span><h2>一个 Decode token 的完整工作流</h2></div>
+    <p class="sec-desc">单步播放，看一个新 token 从进入 op 到写出结果经过的六个环节。</p>
+    <div class="card">
+      <div class="stepper" id="stepper"></div>
+      <div class="step-ctrl">
+        <button class="btn primary" id="wfPlay">自动播放</button>
+        <button class="btn" id="wfNext">下一步</button>
+        <button class="btn" id="wfReset">重置</button>
+        <span class="step-count" id="wfCount">0 / 6</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 视图：结果 ===== -->
+<section id="results">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">05</span><h2>验证：正确性与性能</h2></div>
+    <p class="sec-desc">正确性用真实 Qwen3-4B 与 Hugging Face 逐 token 对齐；性能在 2×910B4 上 A/B 测量（3 次预热、7 次取中位数，新旧顺序交替）。</p>
+
+    <div class="verify" style="margin-bottom:18px">
+      <div class="vbox"><div class="big" style="color:var(--good)">32 / 32</div><div class="k">生成 token 与 HF 参考完全一致</div></div>
+      <div class="vbox"><div class="big mono">2.3e-2 / 7.8e-2</div><div class="k">最大 logit 差值（prompt / 32 tokens），处于 fp16 内核噪声范围</div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card chart-card">
+        <h3><span class="dot k"></span>KV 存储路径耗时（每 decode 步）</h3>
+        <div class="chart" id="chartKV"></div>
+      </div>
+      <div class="card chart-card">
+        <h3><span class="dot k"></span>完整 decode 步耗时（含 fusion_attention）</h3>
+        <div class="chart" id="chartFull"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h3><span class="dot r"></span>RoPE 整体函数 A/B（prompt 1024 / decode 1，fp16）</h3>
+      <table class="tbl">
+        <thead><tr><th>阶段</th><th>旧：float64 每步重算</th><th>新：缓存 inv_freq（fp32）</th><th>加速比</th></tr></thead>
+        <tbody>
+          <tr><td>prompt</td><td class="mono">1.163 ms</td><td class="mono">0.896 ms</td><td class="sp">1.3×</td></tr>
+          <tr><td>decode</td><td class="mono">1.095 ms</td><td class="mono">0.819 ms</td><td class="sp">1.3×</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>DeepSpeed PR #8776 · NPU RoPE correctness & KV preallocation</span>
+    <span>数据来源：github.com/deepspeedai/DeepSpeed/pull/8776</span>
+  </div>
+</footer>
+
+<script>
+/* ============================================================
+ * 01 背景：prompt / decode 阶段流程
+ * ============================================================ */
+const PHASE_DATA = {
+  prompt:{nodes:[
+    ['整段输入','seq_len 个 token 一次进入',''],
+    ['RoPE 旋转','每个位置用各自角度（修复点：interleave 配对）','hl-rope'],
+    ['写入整段 KV','一次性写入 seq_len 行','hl-kv'],
+    ['因果注意力','带 triangular mask 并行计算',''],
+    ['输出首个 token','reset_tokens(seq_len)','']
+  ],note:'<b>Prompt 阶段：</b>并行处理整段输入。这里藏着配对 bug——交错布局的 cos/sin 表被错误地用对半模式旋转。'},
+  decode:{nodes:[
+    ['单个新 token','seq_len = 1',''],
+    ['RoPE 旋转','角度取 seq_offset = kv_len（修复点：原来恒为 0）','hl-rope'],
+    ['单行写入 KV','在 kv_len 位置写一行，O(1)','hl-kv'],
+    ['注意力读历史','零拷贝 [:, :kv_len] 视图',''],
+    ['advance_tokens','最后一层后计数 +1，进入下一 token','']
+  ],note:'<b>Decode 阶段：</b>每步一个 token，循环往复。这里藏着位置恒 0 的 bug 和 O(n²) 的 torch.cat 重建问题。'}
+};
+function renderPhase(phase){
+  const d=PHASE_DATA[phase];
+  const flow=document.getElementById('phaseFlow');
+  flow.innerHTML=d.nodes.map((n,i)=>
+    (i?'<div class="farrow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>':'')
+    +'<div class="fnode '+n[2]+'"><div class="t">'+n[0]+'</div><div class="d">'+n[1]+'</div></div>'
+  ).join('');
+  document.getElementById('phaseNote').innerHTML=d.note;
+}
+document.getElementById('phaseSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#phaseSeg button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');renderPhase(b.dataset.phase);
+});
+renderPhase('prompt');
+
+/* ============================================================
+ * 02 RoPE Canvas 旋转演示
+ * ============================================================ */
+const cv=document.getElementById('ropeCanvas'),ctx=cv.getContext('2d');
+const posSlider=document.getElementById('posSlider'),bugToggle=document.getElementById('bugToggle');
+function setupCanvas(){
+  const dpr=window.devicePixelRatio||1,rect=cv.getBoundingClientRect();
+  cv.width=rect.width*dpr;cv.height=380*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+function drawRope(){
+  const w=cv.getBoundingClientRect().width,h=380,cx=w/2,cy=h/2+6,R=118;
+  ctx.clearRect(0,0,w,h);
+  // 网格
+  ctx.strokeStyle='rgba(34,48,63,.7)';ctx.lineWidth=1;
+  for(let g=-3;g<=3;g++){ctx.beginPath();ctx.moveTo(cx+g*42,cy-R-20);ctx.lineTo(cx+g*42,cy+R+20);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-R-20,cy+g*42);ctx.lineTo(cx+R+20,cy+g*42);ctx.stroke();}
+  // 坐标轴
+  ctx.strokeStyle='#2C3D4E';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(cx-R-24,cy);ctx.lineTo(cx+R+24,cy);ctx.moveTo(cx,cy-R-24);ctx.lineTo(cx,cy+R+24);ctx.stroke();
+  // 单位圆
+  ctx.strokeStyle='rgba(63,182,232,.28)';ctx.setLineDash([5,5]);ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.stroke();ctx.setLineDash([]);
+  const pos=+posSlider.value;
+  const thetaReal=bugToggle.checked?0:pos;          // 第0对逆频率=1，θ=position
+  const drawAng=thetaReal%(2*Math.PI);
+  const baseAng=0.55;                                // 原始向量方向
+  const baseVec=[Math.cos(baseAng),-Math.sin(baseAng)];
+  // 原始向量（灰）
+  drawVec(cx,cy,baseVec[0]*R,baseVec[1]*R,'#5F6E7D',2.5);
+  // 旋转后向量（青）
+  const ax=Math.cos(drawAng),ay=Math.sin(drawAng);
+  const rx=baseVec[0]*ax-baseVec[1]*ay, ry=baseVec[0]*ay+baseVec[1]*ax;
+  drawVec(cx,cy,rx*R,ry*R,'#3FB6E8',3);
+  ctx.fillStyle='#3FB6E8';ctx.beginPath();ctx.arc(cx+rx*R,cy+ry*R,4.5,0,7);ctx.fill();
+  // 角度弧
+  ctx.strokeStyle=bugToggle.checked?'#F0616D':'#F2A93B';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(cx,cy,34,baseAng-Math.PI/2,baseAng-Math.PI/2+drawAng,drawAng>Math.PI);ctx.stroke();
+  // 读数
+  document.getElementById('posVal').textContent=pos;
+  document.getElementById('outAngle').textContent=thetaReal.toFixed(2)+' rad';
+  document.getElementById('outCos').textContent=Math.cos(thetaReal).toFixed(3);
+  document.getElementById('outSin').textContent=Math.sin(thetaReal).toFixed(3);
+  const co=document.getElementById('ropeCallout');
+  if(bugToggle.checked){co.className='bugcallout bad';co.innerHTML='<b>修复前：</b>seq_offset 被忽略，无论 position 是多少，θ 恒为 0，所有 decode token 共享位置 0 的旋转。';}
+  else{co.className='bugcallout good';co.innerHTML='修复后：角度随位置正确变化（θ = position × inv_freq），decode token 拿到自己的绝对位置。';}
+}
+function drawVec(x,y,dx,dy,color,lw){
+  ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+dx,y+dy);ctx.stroke();
+  const a=Math.atan2(dy,dx);ctx.fillStyle=color;
+  ctx.beginPath();ctx.moveTo(x+dx,y+dy);ctx.lineTo(x+dx-9*Math.cos(a-.4),y+dy-9*Math.sin(a-.4));
+  ctx.lineTo(x+dx-9*Math.cos(a+.4),y+dy-9*Math.sin(a+.4));ctx.closePath();ctx.fill();
+}
+posSlider.addEventListener('input',drawRope);
+bugToggle.addEventListener('change',drawRope);
+window.addEventListener('resize',()=>{setupCanvas();drawRope();});
+
+/* ============================================================
+ * 03 元素配对 SVG
+ * ============================================================ */
+const pairSvg=document.getElementById('pairSvg');
+const N=8,slotW=44,gap=10,x0=18,y=58;
+function slotX(i){return x0+i*(slotW+gap);}
+function buildPairSvg(){
+  let h='';
+  for(let i=0;i<N;i++){
+    h+='<rect class="pair-cell" data-i="'+i+'" x="'+slotX(i)+'" y="'+y+'" width="'+slotW+'" height="40" rx="8"/>';
+    h+='<text class="pair-text" data-i="'+i+'" x="'+slotX(i)+slotW/2+'" y="'+y+20+'">x'+i+'</text>';
+  }
+  // interleave 连线（上方）
+  [[0,1],[2,3],[4,5],[6,7]].forEach(p=>{
+    h+='<path class="pair-line il" data-pair="il" d="M'+(slotX(p[0])+slotW/2)+','+(y-4)+' Q'+(slotX(p[0])+slotW/2+gap/2+slotW/2)+','+(y-26)+' '+(slotX(p[1])+slotW/2)+','+(y-4)+'"/>';
+  });
+  // half 连线（下方）
+  [[0,4],[1,5],[2,6],[3,7]].forEach(p=>{
+    h+='<path class="pair-line hf" data-pair="hf" d="M'+(slotX(p[0])+slotW/2)+','+(y+44)+' Q'+(slotX(p[0])+slotW/2+(slotX(p[1])-slotX(p[0]))/2)+','+(y+78)+' '+(slotX(p[1])+slotW/2)+','+(y+44)+'"/>';
+  });
+  pairSvg.innerHTML=h;
+}
+function renderPair(mode){
+  pairSvg.querySelectorAll('.pair-line').forEach(l=>l.classList.toggle('show',l.dataset.pair===mode));
+  const lit=mode==='il'?[[0,1],[2,3],[4,5],[6,7]]:[[0,4],[1,5],[2,6],[3,7]];
+  const litSet=new Set(lit.flat());
+  pairSvg.querySelectorAll('.pair-cell,.pair-text').forEach(el=>el.classList.toggle('lit',litSet.has(+el.dataset.i)));
+  document.getElementById('pairNote').innerHTML=mode==='il'
+    ?'<b style="color:var(--rope)">interleave：</b>相邻元素配对 (x0,x1)(x2,x3)…，对应 repeat_interleave(2) 的交错表，npu_rotary_mul 传 "interleave"。'
+    :'<b style="color:var(--violet)">rotate_half：</b>第 j 个与第 j+dim/2 个配对 (x0,x4)(x1,x5)…，cos/sin 并排复制，对应 HF split-half 约定。';
+}
+document.getElementById('pairSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#pairSeg button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');renderPair(b.dataset.pair);
+});
+buildPairSvg();renderPair('il');
+
+/* ============================================================
+ * 04 KV 缓存动画
+ * ============================================================ */
+const PROMPT_LEN=8;
+const kvState={mode:'new',len:PROMPT_LEN,cap:16,total:0,growFlag:false};
+const kvBuf=document.getElementById('kvBuf');
+function renderKV(anim){
+  const show=kvState.mode==='new'?kvState.cap:kvState.len+1;
+  let h='';
+  for(let i=0;i<show;i++){
+    let cls='kv-slot';
+    if(i<kvState.len)cls+=' filled';
+    if(anim&&i===kvState.len)cls+=' newwrite';
+    if(anim&&kvState.mode==='old'&&i<kvState.len)cls+=' copy';
+    if(kvState.growFlag&&i>=kvState.len&&kvState.mode==='new')cls+=' grow';
+    h+='<div class="'+cls+'">'+(i<kvState.len?i:'')+'</div>';
+  }
+  kvBuf.innerHTML=h;
+  document.getElementById('mStep').textContent=anim?(kvState.mode==='old'?kvState.len:1):'0';
+  document.getElementById('mTotal').textContent=kvState.total;
+  document.getElementById('kvNote').innerHTML=kvState.mode==='old'
+    ?'旧路径每步 torch.cat：重新分配并拷贝全部 '+kvState.len+' 行历史，单步 O(n)、整序列 O(n²)。'
+    :'新路径预分配缓冲（当前容量 '+kvState.cap+'）：只写第 '+kvState.len+' 行，单步 O(1)，容量翻倍扩容摊销 O(1)。';
+}
+document.getElementById('kvSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#kvSeg button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');kvState.mode=b.dataset.kv;kvReset();
+});
+document.getElementById('kvNext').addEventListener('click',()=>{
+  if(kvState.mode==='old'){
+    kvState.total+=kvState.len;            // 拷贝全部历史
+    renderKV(true);
+    setTimeout(()=>{kvState.len++;renderKV(false);},520);
+  }else{
+    kvState.growFlag=false;
+    if(kvState.len===kvState.cap){kvState.cap*=2;kvState.growFlag=true;renderKV(false);
+      setTimeout(()=>{kvState.growFlag=false;doNewWrite();},480);}
+    else doNewWrite();
+  }
+});
+function doNewWrite(){
+  kvState.total+=1;renderKV(true);
+  setTimeout(()=>{kvState.len++;renderKV(false);},480);
+}
+function kvReset(){
+  kvState.len=PROMPT_LEN;kvState.cap=16;kvState.total=0;kvState.growFlag=false;renderKV(false);
+}
+document.getElementById('kvReset').addEventListener('click',kvReset);
+kvReset();
+
+/* ============================================================
+ * 05 工作流步进
+ * ============================================================ */
+const STEPS=[
+  ['接收融合 QKV，按 GQA 拆分','按 heads 与 num_kv 切出 Q、K、V，K/V 只携带 num_kv 组','hidden = heads × head_dim'],
+  ['确定 decode 绝对位置','seq_offset 直接取缓冲行数 kv_len，作为本 token 的 0-based 位置','seq_offset = kv_len'],
+  ['取缓存 inv_freq，推导角度','fp32 逆频率只算一次；arange+offset 外积后取 sin/cos','outer(seq_id, inv_freq)'],
+  ['施加 RoPE 旋转','interleave 或 rotate_half 模式，匹配 cos/sin 表布局','npu_rotary_mul(...)'],
+  ['单行写入预分配 KV 缓冲','在 kv_len 位置写一行，容量几何增长，attention 零拷贝读取','k_buf[:, kv_len:kv_len+1]'],
+  ['fusion_attention 并推进计数','npu_fusion_attention 读 [:, :kv_len]；最后一层后 advance_tokens','if layer_id == num_layers-1']
+];
+let wfCur=0,wfTimer=null;
+const stepper=document.getElementById('stepper');
+function buildStepper(){
+  stepper.innerHTML=STEPS.map((s,i)=>'<div class="step" data-i="'+i+'"><div class="ball">'+(i+1)+'</div><div class="stxt"><h4>'+s[0]+'</h4><p>'+s[1]+'</p><span class="mono">'+s[2]+'</span></div></div>').join('');
+}
+function renderWF(){
+  stepper.querySelectorAll('.step').forEach((el,i)=>{
+    el.classList.toggle('active',i===wfCur);
+    el.classList.toggle('done',i<wfCur);
+  });
+  document.getElementById('wfCount').textContent=wfCur+' / 6';
+}
+function wfNext(){if(wfCur<6){wfCur++;renderWF();}else{stopPlay();}}
+function stopPlay(){if(wfTimer){clearInterval(wfTimer);wfTimer=null;document.getElementById('wfPlay').textContent='自动播放';}}
+document.getElementById('wfNext').addEventListener('click',wfNext);
+document.getElementById('wfReset').addEventListener('click',()=>{stopPlay();wfCur=0;renderWF();});
+document.getElementById('wfPlay').addEventListener('click',e=>{
+  if(wfTimer){stopPlay();return;}
+  if(wfCur===6){wfCur=0;renderWF();}
+  e.target.textContent='暂停';
+  wfTimer=setInterval(()=>{wfNext();if(wfCur===6)stopPlay();},1500);
+});
+buildStepper();renderWF();
+
+/* ============================================================
+ * 06 ECharts 性能图表
+ * ============================================================ */
+const axisStyle={axisLine:{lineStyle:{color:'#2C3D4E'}},axisLabel:{color:'#96A5B4',fontFamily:'IBM Plex Mono',fontSize:11},
+  splitLine:{lineStyle:{color:'rgba(44,61,78,.45)'}}};
+function baseOpt(){return{
+  tooltip:{trigger:'axis',backgroundColor:'#121A24',borderColor:'#2C3D4E',textStyle:{color:'#E7EEF5',fontFamily:'IBM Plex Mono',fontSize:12}},
+  legend:{textStyle:{color:'#96A5B4',fontSize:12},top:0,itemWidth:14,itemHeight:9},
+  grid:{left:48,right:18,top:42,bottom:36},
+  xAxis:{type:'category',...axisStyle},
+  yAxis:{type:'value',name:'ms',nameTextStyle:{color:'#5F6E7D'},...axisStyle}
+};}
+const kvLen=['1024','2048','4096','8192','16384','32768'];
+const c1=echarts.init(document.getElementById('chartKV'));
+const o1=baseOpt();
+o1.xAxis.data=kvLen;
+o1.series=[
+  {name:'旧 torch.cat',type:'line',data:[0.183,0.175,0.176,0.498,0.952,1.863],smooth:true,symbolSize:8,lineStyle:{color:'#F0616D',width:2.5},itemStyle:{color:'#F0616D'}},
+  {name:'新 预分配',type:'line',data:[0.171,0.164,0.164,0.164,0.172,0.176],smooth:true,symbolSize:8,lineStyle:{color:'#F2A93B',width:2.5},itemStyle:{color:'#F2A93B'}}
+];
+c1.setOption(o1);
+const c2=echarts.init(document.getElementById('chartFull'));
+const o2=baseOpt();
+o2.xAxis.data=['8192','16384','32768'];
+o2.series=[
+  {name:'旧路径',type:'bar',data:[1.478,2.857,5.490],barWidth:26,itemStyle:{color:'#F0616D',borderRadius:[4,4,0,0]}},
+  {name:'新路径',type:'bar',data:[1.145,1.536,2.311],barWidth:26,itemStyle:{color:'#F2A93B',borderRadius:[4,4,0,0]}}
+];
+c2.setOption(o2);
+window.addEventListener('resize',()=>{c1.resize();c2.resize();});
+
+setupCanvas();drawRope();
+</script>
+</body>
+</html>

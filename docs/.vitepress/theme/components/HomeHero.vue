@@ -4,8 +4,8 @@ import { withBase } from 'vitepress'
 import BackGround from './BackGround.vue'
 
 const copy = {
-  zh: { text: 'Hi 🖐️', tagline: '在代码里种点东西' },
-  en: { text: 'Hi 🖐️', tagline: 'Planting seeds in code' },
+  zh: { text: 'Hi 🖐️', tagline: '在代码里种点东西', notes: 'PR 笔记' },
+  en: { text: 'Hi 🖐️', tagline: 'Planting seeds in code', notes: 'PR Notes' },
 }
 
 const lang = ref('en')
@@ -38,7 +38,8 @@ function toggleLang() {
       <p class="text">{{ t.text }}</p>
       <p class="tagline">{{ t.tagline }}</p>
       <div class="actions">
-        <a class="btn" href="https://github.com/VenusTZZ">GitHub</a>
+        <a class="btn" :href="withBase('/notes/')">{{ t.notes }}</a>
+        <a class="btn btn-ghost" href="https://github.com/VenusTZZ">GitHub</a>
       </div>
     </main>
     <footer class="footer" data-avoid>© 2026 Venus</footer>
@@ -103,21 +104,39 @@ function toggleLang() {
 
 .actions {
   margin-top: 36px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
 }
 
 .btn {
   display: inline-block;
+  box-sizing: border-box;
+  border: 1px solid transparent;
   border-radius: 999px;
   padding: 0 26px;
   line-height: 42px;
   font-size: 14px;
   background: #c0ebd7;
   color: #0d1512;
-  transition: background-color 0.25s;
+  transition: background-color 0.25s, border-color 0.25s, color 0.25s;
 }
 
 .btn:hover {
   background: #d7f4e6;
+}
+
+.btn-ghost {
+  border-color: rgba(192, 235, 215, 0.45);
+  background: transparent;
+  color: #c0ebd7;
+}
+
+.btn-ghost:hover {
+  border-color: #c0ebd7;
+  background: rgba(192, 235, 215, 0.08);
+  color: #eafff4;
 }
 
 .lang-toggle {

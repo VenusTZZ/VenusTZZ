@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR #8627 · NPU 量化通信原理交互讲解</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e141b'/%3E%3Crect x='6' y='6' width='9' height='9' rx='2' fill='%234fd1a5'/%3E%3Crect x='17' y='6' width='9' height='9' rx='2' fill='%23e8a44a'/%3E%3Crect x='6' y='17' width='9' height='9' rx='2' fill='%235cc8e0'/%3E%3Crect x='17' y='17' width='9' height='9' rx='2' fill='%237fb3ff'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0e141b; --bg2:#141d27; --bg3:#1b2733; --bg4:#22303f;
+  --line:#263747; --line2:#33485c;
+  --text:#d8e2ec; --muted:#8aa0b4; --faint:#5f7488;
+  --fp:#7fb3ff; --i8:#4fd1a5; --i4:#e8a44a; --danger:#e5685c; --accent:#5cc8e0; --purple:#b494ff;
+  --mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7;font-size:15px;-webkit-font-smoothing:antialiased}
+::selection{background:#1d4a5c;color:#fff}
+a{color:var(--accent);text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+section{padding:76px 0;border-top:1px solid var(--line)}
+h1,h2,h3{line-height:1.3;font-weight:700}
+h2{font-size:26px;margin-bottom:10px;letter-spacing:.2px}
+h2 .no{font-family:var(--mono);color:var(--faint);font-size:15px;font-weight:400;margin-right:12px;vertical-align:2px}
+.lead{color:var(--muted);max-width:760px;margin-bottom:34px;font-size:15.5px}
+h3{font-size:17px;margin:26px 0 12px}
+p.note{color:var(--muted);font-size:14px}
+code,kbd{font-family:var(--mono);font-size:.9em;background:var(--bg3);border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:#cfe3f2}
+pre{font-family:var(--mono);background:#0b1118;border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-size:13px;line-height:1.75;color:#c4d6e6}
+/* ===== 顶部导航 ===== */
+header.nav{position:sticky;top:0;z-index:50;background:rgba(14,20,27,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.nav-inner{display:flex;align-items:center;gap:18px;height:56px;max-width:1180px;margin:0 auto;padding:0 24px}
+.brand{font-family:var(--mono);font-weight:700;font-size:14px;white-space:nowrap}
+.brand .hash{color:var(--i8)}
+.nav-links{display:flex;gap:2px;margin-left:auto;overflow-x:auto}
+.nav-links a{color:var(--muted);font-size:13.5px;padding:7px 11px;border-radius:6px;white-space:nowrap}
+.nav-links a:hover{color:var(--text);background:var(--bg3)}
+.nav-links a.active{color:var(--accent);background:var(--bg3)}
+/* ===== Hero ===== */
+.hero{padding:70px 0 60px;border-top:none;position:relative;overflow:hidden}
+.hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:44px;align-items:center}
+.eyebrow{font-family:var(--mono);font-size:12.5px;color:var(--i8);letter-spacing:1.5px;margin-bottom:18px}
+.hero h1{font-size:34px;letter-spacing:.3px;margin-bottom:18px}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.hero p{color:var(--muted);font-size:15.5px;margin-bottom:24px}
+.hero-meta{display:flex;flex-wrap:wrap;gap:10px}
+.chip{font-family:var(--mono);font-size:12px;border:1px solid var(--line2);border-radius:20px;padding:5px 12px;color:var(--muted);background:var(--bg2)}
+.chip b{color:var(--text);font-weight:600}
+/* hero 动画 */
+.hero-stage{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:20px 18px;min-height:300px}
+.stage-title{font-family:var(--mono);font-size:12px;color:var(--faint);margin-bottom:14px;display:flex;justify-content:space-between}
+.ranks{display:flex;flex-direction:column;gap:14px}
+.rank-row{display:flex;align-items:center;gap:10px}
+.rank-label{font-family:var(--mono);font-size:12px;color:var(--muted);width:42px;flex:none}
+.shards{display:flex;gap:6px;flex:1}
+.shard{height:30px;border-radius:5px;flex:1;min-width:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10.5px;color:#0b1118;font-weight:700}
+.shard.fp{background:var(--fp)} .shard.i8{background:var(--i8)} .shard.i4{background:var(--i4)}
+.shard.ghost{background:transparent;border:1px dashed var(--line2);color:var(--faint)}
+.flow-line{position:relative;height:34px;margin:2px 0}
+.flow-packet{position:absolute;top:50%;left:0;transform:translateY(-50%);height:18px;border-radius:4px;font-family:var(--mono);font-size:10px;display:flex;align-items:center;padding:0 8px;color:#0b1118;font-weight:700;white-space:nowrap;animation:packet 3.2s ease-in-out infinite}
+.flow-packet.p1{background:var(--i8);animation-delay:0s}
+.flow-packet.p2{background:var(--i4);animation-delay:1.1s}
+.flow-packet.p3{background:var(--fp);animation-delay:2.2s;opacity:.85}
+@keyframes packet{0%{left:2%;opacity:0}12%{opacity:1}82%{opacity:1}100%{left:86%;opacity:0}}
+.stage-legend{display:flex;gap:14px;margin-top:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:0}
+/* ===== 通用卡片/网格 ===== */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:20px}
+.card h4{font-size:15px;margin-bottom:8px}
+.card p{color:var(--muted);font-size:13.5px}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:5px;margin-bottom:10px}
+.tag.ok{background:rgba(79,209,165,.13);color:var(--i8);border:1px solid rgba(79,209,165,.35)}
+.tag.bad{background:rgba(229,104,92,.13);color:var(--danger);border:1px solid rgba(229,104,92,.35)}
+.tag.warn{background:rgba(232,164,74,.14);color:var(--i4);border:1px solid rgba(232,164,74,.35)}
+/* ===== 机制图：op_builder ===== */
+.builder-panel{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:24px}
+.backend-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
+.backend-tabs button{font-family:var(--mono);font-size:13px;background:var(--bg3);color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:9px 16px;cursor:pointer}
+.backend-tabs button.on{color:var(--text);border-color:var(--line2);background:var(--bg4)}
+.builder-map{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.bnode{border:1px solid var(--line);border-radius:10px;padding:16px;background:var(--bg3);text-align:center}
+.bnode .bname{font-family:var(--mono);font-size:13px;margin-bottom:8px}
+.bnode .bstate{font-family:var(--mono);font-size:11.5px;padding:4px 10px;border-radius:5px;display:inline-block}
+.bstate.impl{background:rgba(79,209,165,.14);color:var(--i8)}
+.bstate.miss{background:rgba(229,104,92,.14);color:var(--danger)}
+.bstate.new{background:rgba(92,200,224,.14);color:var(--accent)}
+.crash-trace{margin-top:18px;background:#0b1118;border:1px solid var(--line);border-radius:10px;padding:14px 18px;font-family:var(--mono);font-size:12.5px;color:var(--muted);display:none}
+.crash-trace.show{display:block}
+.crash-trace .err{color:var(--danger)}
+/* ===== 流程步进器 ===== */
+.stepper{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:24px}
+.step-bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap}
+.step-dot{flex:1;min-width:90px;font-family:var(--mono);font-size:12px;text-align:center;padding:9px 6px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:var(--faint)}
+.step-dot.on{color:var(--text);border-color:var(--accent);background:rgba(92,200,224,.1)}
+.step-body{min-height:150px}
+.step-body h4{font-size:16px;margin-bottom:8px}
+.step-body p{color:var(--muted);font-size:14px;margin-bottom:10px}
+.step-controls{display:flex;gap:10px;margin-top:18px}
+.btn{font-family:var(--mono);font-size:13px;background:var(--bg4);color:var(--text);border:1px solid var(--line2);border-radius:8px;padding:9px 18px;cursor:pointer}
+.btn:hover{background:#2a3b4d}
+.btn.primary{background:#174657;border-color:#236073}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+/* ===== 量化 playground ===== */
+.playground{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:24px}
+.pg-input{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
+.pg-input input{font-family:var(--mono);font-size:13.5px;background:var(--bg3);border:1px solid var(--line2);border-radius:8px;color:var(--text);padding:10px 14px;flex:1;min-width:240px}
+.pg-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
+.pg-table th,.pg-table td{padding:9px 10px;text-align:center;border-bottom:1px solid var(--line)}
+.pg-table th{color:var(--faint);font-weight:500;font-size:11.5px}
+.pg-table td .v{color:var(--fp)}
+.pg-table .trunc{color:var(--i8)} .pg-table .round{color:var(--i4)}
+.pg-summary{display:flex;gap:26px;flex-wrap:wrap;margin-top:18px;font-family:var(--mono);font-size:13px;color:var(--muted)}
+.pg-summary b{color:var(--text)}
+.pg-toggle{display:flex;gap:6px}
+.pg-toggle button{font-family:var(--mono);font-size:12px;padding:7px 13px;border-radius:7px;border:1px solid var(--line);background:var(--bg3);color:var(--muted);cursor:pointer}
+.pg-toggle button.on{background:var(--bg4);color:var(--text)}
+/* ===== int4 打包 ===== */
+.bytes{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
+.byte-box{border:1px solid var(--line2);border-radius:9px;padding:12px 14px;background:var(--bg3);text-align:center;cursor:pointer;min-width:96px}
+.byte-box .bits{font-family:var(--mono);font-size:15px;letter-spacing:1.5px;color:var(--i4)}
+.byte-box .lbl{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:6px}
+.byte-box.sel{border-color:var(--accent);background:rgba(92,200,224,.08)}
+.byte-detail{font-family:var(--mono);font-size:13px;color:var(--muted);min-height:44px}
+.byte-detail b{color:var(--accent)}
+/* ===== 两阶段 all-to-all 示意 ===== */
+.a2a{display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:center;margin-top:10px}
+.node-col{display:flex;flex-direction:column;gap:10px}
+.node{border:1px solid var(--line);border-radius:9px;padding:10px 14px;background:var(--bg3);font-family:var(--mono);font-size:12.5px;display:flex;justify-content:space-between;gap:8px}
+.node .nid{color:var(--muted)}
+.a2a-arrows{display:flex;flex-direction:column;gap:8px;color:var(--faint);font-family:var(--mono);font-size:11px}
+/* ===== tabs ===== */
+.tabs{display:flex;gap:8px;margin-bottom:18px}
+.tabs button{font-family:var(--mono);font-size:13px;padding:9px 18px;border-radius:8px;border:1px solid var(--line);background:var(--bg3);color:var(--muted);cursor:pointer}
+.tabs button.on{background:var(--bg4);color:var(--text);border-color:var(--line2)}
+.tab-pane{display:none}.tab-pane.on{display:block}
+/* ===== 数据表 ===== */
+.dtable{width:100%;border-collapse:collapse;font-size:13.5px}
+.dtable th,.dtable td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line)}
+.dtable th{color:var(--faint);font-weight:500;font-size:12.5px;font-family:var(--mono)}
+.dtable td.num{font-family:var(--mono);text-align:right}
+.dtable tr:hover td{background:var(--bg2)}
+/* 时间轴 */
+.timeline{position:relative;margin-left:8px;padding-left:26px;border-left:2px solid var(--line2)}
+.tl-item{position:relative;padding:0 0 26px 8px}
+.tl-item:last-child{padding-bottom:0}
+.tl-item::before{content:"";position:absolute;left:-33px;top:7px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2px solid var(--accent)}
+.tl-item .tl-date{font-family:var(--mono);font-size:12px;color:var(--faint)}
+.tl-item h4{font-size:15px;margin:3px 0 5px}
+.tl-item p{color:var(--muted);font-size:13.5px}
+footer{padding:34px 0 50px;border-top:1px solid var(--line);color:var(--faint);font-size:13px;font-family:var(--mono)}
+@media (max-width:900px){
+  .hero-grid{grid-template-columns:1fr;gap:30px}
+  .grid2,.grid3{grid-template-columns:1fr}
+  .builder-map{grid-template-columns:1fr}
+  .a2a{grid-template-columns:1fr}.a2a-arrows{flex-direction:row;justify-content:center}
+  .hero h1{font-size:27px}
+}
+@media (prefers-reduced-motion:reduce){
+  .flow-packet{animation:none;left:40%;opacity:1}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <div class="brand"><span class="hash">#</span>8627 · NPU × ZeRO++</div>
+    <nav class="nav-links" id="navLinks">
+      <a href="#problem">问题定位</a>
+      <a href="#builder">分发机制</a>
+      <a href="#hpz">hpZ 流程</a>
+      <a href="#playground">量化实验</a>
+      <a href="#qgz">qgZ 流程</a>
+      <a href="#optim">优化器</a>
+      <a href="#verify">验证数据</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<div class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow">DEEPSPEED · ASCEND NPU · MERGED 2026-09-28</div>
+      <h1>在昇腾上补齐 ZeRO++ 的<br><em>量化通信三件套</em></h1>
+      <p>PR #8627 为 NPU 后端实现 FusedLion、FusedLamb 与 Quantizer，让 Lion/LAMB 训练和 ZeRO++ 的 hpZ（int8 权重）、qgZ（int4 梯度）量化通信从初始化崩溃变为可用。纯 PyTorch 实现，无内核代码，契约逐比特对齐 CUDA。</p>
+      <div class="hero-meta">
+        <span class="chip">改动 <b>4 文件 +446/-2</b></span>
+        <span class="chip">验证环境 <b>4× Ascend 910B4</b></span>
+        <span class="chip">权重 payload <b>−50.0%</b></span>
+        <span class="chip">CANN <b>8.5.0</b></span>
+      </div>
+    </div>
+    <div class="hero-stage">
+      <div class="stage-title"><span>RANK 间通信实时示意</span><span>payload 对比</span></div>
+      <div class="ranks">
+        <div class="rank-row"><span class="rank-label">RANK0</span><div class="shards">
+          <div class="shard i8">i8</div><div class="shard i4">i4</div><div class="shard fp">fp16</div><div class="shard ghost">?</div>
+        </div></div>
+        <div class="flow-line">
+          <div class="flow-packet p1">int8 权重 16.6KB</div>
+          <div class="flow-packet p2">int4 梯度</div>
+          <div class="flow-packet p3">fp16 33.2KB</div>
+        </div>
+        <div class="rank-row"><span class="rank-label">RANK1</span><div class="shards">
+          <div class="shard ghost">?</div><div class="shard fp">fp16</div><div class="shard i4">i4</div><div class="shard i8">i8</div>
+        </div></div>
+      </div>
+      <div class="stage-legend">
+        <span><span class="dot" style="background:var(--fp)"></span>fp16 原始通信</span>
+        <span><span class="dot" style="background:var(--i8)"></span>int8 hpZ</span>
+        <span><span class="dot" style="background:var(--i4)"></span>int4 qgZ</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 视图：问题定位 ===== -->
+<section id="problem">
+  <div class="wrap">
+    <h2><span class="no">01</span>问题：三个算子在 NPU 上整体缺席</h2>
+    <p class="lead">ZeRO-3 把参数切片分散到各 rank，训练时需要反复 all-gather 拉权重、all-to-all 交换梯度，通信是主要瓶颈。ZeRO++ 用低比特量化把通信载荷压下来，但这些能力都依赖 Quantizer 算子；同时 Lion、LAMB 两个融合优化器也依赖各自的 fused op。NPU 后端三者皆缺，配置一开就在引擎初始化阶段崩溃。</p>
+    <div class="grid3">
+      <div class="card">
+        <span class="tag bad">初始化崩溃</span>
+        <h4>FusedLion</h4>
+        <p><code>"optimizer": {"type": "Lion"}</code> 时 <code>FusedLionBuilder().load()</code> 抛 ValueError，Lion 训练在昇腾上无法启动。</p>
+      </div>
+      <div class="card">
+        <span class="tag bad">初始化崩溃</span>
+        <h4>FusedLamb</h4>
+        <p><code>"type": "Lamb"</code> 时同样落到未实现分支，LAMB 的 trust ratio 语义在 NPU 上没有对应入口。</p>
+      </div>
+      <div class="card">
+        <span class="tag bad">初始化崩溃</span>
+        <h4>Quantizer（hpZ / qgZ）</h4>
+        <p>打开 <code>zero_quantized_weights</code> 或 <code>zero_quantized_gradients</code>，量化器加载失败，ZeRO++ 量化通信全部不可用。</p>
+      </div>
+    </div>
+    <h3>为什么通信是 ZeRO 的瓶颈</h3>
+    <div class="grid2">
+      <div class="card">
+        <h4>hpZ · 量化权重 all-gather</h4>
+        <p>fp16 权重按组做 int8 对称量化后再 all-gather，每卡每次拉取权重的字节数直接减半；到卡后反量化，训练计算仍保持 fp16/bf16。</p>
+      </div>
+      <div class="card">
+        <h4>qgZ · 量化梯度两阶段 all-to-all</h4>
+        <p>梯度压成 int4 并按两阶段 all-to-all 布局重排：先机内交换、做 <code>quantized_reduction</code>（反量化→fp16 累加→再量化），再机间交换。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 视图：op_builder 分发机制 ===== -->
+<section id="builder">
+  <div class="wrap">
+    <h2><span class="no">02</span>根因：OpBuilder 后端分发与兜底逻辑</h2>
+    <p class="lead">DeepSpeed 每个可加速算子都有一个 OpBuilder，按后端目录各自实现。后端缺哪个算子，名字就解析到 NotImplementedBuilder，调用 load() 立即抛错。切换下面的后端，观察三个算子在不同后端上的实现状态。</p>
+    <div class="builder-panel">
+      <div class="backend-tabs" id="backendTabs">
+        <button data-be="cuda" class="on">CUDA</button>
+        <button data-be="supa">SUPA（壁仞）</button>
+        <button data-be="npu-before">NPU（修复前）</button>
+        <button data-be="npu-after">NPU（本 PR 后）</button>
+      </div>
+      <div class="builder-map" id="builderMap"></div>
+      <div class="crash-trace" id="crashTrace">
+        deepspeed.initialize()<br>
+        └─ FusedLionBuilder / FusedLambBuilder / QuantizerBuilder<br>
+        &nbsp;&nbsp;&nbsp;└─ NotImplementedBuilder.load()<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="err">ValueError: This op had not been implemented on NPU backend.</span>
+      </div>
+    </div>
+    <p class="note" style="margin-top:16px">背景：PR #8054 先给 SUPA 后端补齐了这三个 builder，NPU 成为唯一缺口；本 PR 在 <code>op_builder/npu/</code> 下新增同名模块并在 <code>__init__.py</code> 注册，分发时即命中真实实现。</p>
+  </div>
+</section>
+
+<!-- ===== 视图：hpZ 流程 ===== -->
+<section id="hpz">
+  <div class="wrap">
+    <h2><span class="no">03</span>hpZ 工作流：int8 量化 → 搬运 → 反量化</h2>
+    <p class="lead">量化值只作为通信载荷存在，绝不进入训练计算。逐步走一遍一个量化组的完整生命周期。</p>
+    <div class="stepper">
+      <div class="step-bar" id="hpzDots">
+        <div class="step-dot on">1 分组</div>
+        <div class="step-dot">2 求 scale</div>
+        <div class="step-dot">3 截断 clamp</div>
+        <div class="step-dot">4 字节搬运</div>
+        <div class="step-dot">5 反量化</div>
+      </div>
+      <div class="step-body" id="hpzBody"></div>
+      <div class="step-controls">
+        <button class="btn" id="hpzPrev">上一步</button>
+        <button class="btn primary" id="hpzNext">下一步</button>
+      </div>
+    </div>
+    <h3>关键契约：为什么必须是「向零截断」</h3>
+    <pre>scale  = 2^b / (2 · max(|x|))        # max 为 0 时 scale 取 1.0
+params = 1 / scale                    # 每组实际发送的是 scale 的倒数（fp32）
+q      = trunc(x · scale)             # 向零截断，对应 CUDA 的 static_cast
+q      = clamp(q, -2^(b-1), 2^(b-1)-1)
+# 若改成 round-to-nearest，每个量化值都会变 —— 混部集群里 CUDA 与 NPU 反量化结果不一致</pre>
+  </div>
+</section>
+
+<!-- ===== 视图：量化 playground ===== -->
+<section id="playground">
+  <div class="wrap">
+    <h2><span class="no">04</span>动手实验：截断 vs 四舍五入</h2>
+    <p class="lead">编辑一组 fp16 输入（逗号分隔），浏览器实时按 hpZ 契约计算。可切换比特数，观察两种舍入模式的差异和反量化误差。</p>
+    <div class="playground">
+      <div class="pg-input">
+        <input id="pgInput" value="0.42, -0.37, 0.15, -0.88, 0.61, -0.05, 0.29, -0.73" spellcheck="false">
+        <div class="pg-toggle" id="pgBits">
+          <button data-bits="8" class="on">int8</button>
+          <button data-bits="4">int4</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="pg-table">
+          <thead><tr><th>原始 x</th><th>x · scale</th><th>trunc（hpZ 契约）</th><th>round（原生算子）</th><th>反量化 x′</th><th>绝对误差</th></tr></thead>
+          <tbody id="pgBody"></tbody>
+        </table>
+      </div>
+      <div class="pg-summary" id="pgSummary"></div>
+      <p class="note" style="margin-top:14px">torch_npu 的 npu_quantize 为 half-to-even 舍入且不暴露截断模式，npu_quant_scatter 的 round_mode 参数实测被忽略——这是本 PR 选择纯 torch 实现的直接原因。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 视图：qgZ 流程 ===== -->
+<section id="qgz">
+  <div class="wrap">
+    <h2><span class="no">05</span>qgZ 工作流：int4 打包与两阶段 all-to-all</h2>
+    <p class="lead">两个相邻量化值塞进一个字节：偶数元素放低四位、奇数元素放高四位，按有符号二进制补码解释。点击字节查看它的两个 nibble。</p>
+    <div class="grid2">
+      <div class="card">
+        <h4> nibble 打包（有符号补码）</h4>
+        <div class="bytes" id="nibbleBytes"></div>
+        <div class="byte-detail" id="byteDetail">点击任意字节查看拆解…</div>
+        <p class="note" style="margin-top:12px">取值范围 [−8, 7]；负数以补码形式占据 nibble，解包时做符号扩展。torch_npu 的 npu_anti_quant 把 int4 当无符号处理，与该格式不兼容。</p>
+      </div>
+      <div class="card">
+        <h4>swizzle_quant：组重排</h4>
+        <p>量化后按目标 rank 对分组做置换，让每个目的卡收到的数据在内存里是连续一整段，all-to-all 可以整段搬运而不是碎片收发。</p>
+        <pre style="margin-top:12px">输入组 g:
+ (z·pipeline+y)·C + x
+输出槽位:
+ y·P + (z % dpn)·nodes
+       + z // dpn
+z=分区 y=流水切片 x=组内序号</pre>
+      </div>
+    </div>
+    <h3>两阶段 all-to-all 与 quantized_reduction</h3>
+    <div class="a2a">
+      <div class="node-col">
+        <div class="node"><span class="nid">阶段一</span><span>机内 all-to-all（int4 打包字节）</span></div>
+        <div class="node"><span class="nid">reduce</span><span>反量化 → fp16 累加 → 重新量化</span></div>
+        <div class="node"><span class="nid">阶段二</span><span>机间 all-to-all（再量化后的载荷）</span></div>
+      </div>
+      <div class="a2a-arrows"><span>→</span><span>→</span><span>→</span></div>
+      <div class="node-col">
+        <div class="node"><span class="nid">swizzle</span><span>按目的卡连续布局的量化组</span></div>
+        <div class="node"><span class="nid">fp16 累加</span><span>同机各 rank 梯度求和，控误差</span></div>
+        <div class="node"><span class="nid">落盘安全</span><span>checkpoint 只存未量化权重</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 视图：优化器 ===== -->
+<section id="optim">
+  <div class="wrap">
+    <h2><span class="no">06</span>两个融合优化器：契约对齐与链式 in-place</h2>
+    <p class="lead">两者都是无状态纯 torch 模块，fp32 计算、写回参数原 dtype。链式 in-place 更新减少 kernel launch，是性能与可验证性的平衡点。</p>
+    <div class="tabs" id="optTabs">
+      <button data-opt="lion" class="on">NPUFusedLion</button>
+      <button data-opt="lamb">NPUFusedLamb</button>
+    </div>
+    <div class="tab-pane on" id="pane-lion">
+      <div class="grid2">
+        <div>
+          <pre>c = β1·m + (1−β1)·g
+p *= (1 − lr·wd)          # 乘性权重衰减
+p += lr · sign(c)         # c==0 时取 +lr 分支
+m  = β2·m + (1−β2)·g      # 动量最后更新（c 用旧动量）</pre>
+        </div>
+        <div class="card">
+          <h4>设计要点</h4>
+          <p>符号更新与参考内核逐比特一致；overflow 标志置位时跳过整步。链式 in-place 在 910B4 上比显式两步算术快约 26%，且结果 bitwise 相等。</p>
+        </div>
+      </div>
+    </div>
+    <div class="tab-pane" id="pane-lamb">
+      <div class="grid2">
+        <div>
+          <pre>m = β1·m + (1−β1)·g
+v = β2·v + (1−β2)·g²
+denom = sqrt(v+eps) 或 sqrt(v)+eps
+u = m/denom + wd·p
+coeff = clamp(||p||/||u||, min, max)
+p -= step_size · coeff · u</pre>
+        </div>
+        <div class="card">
+          <h4>完整语义一项不少</h4>
+          <p>trust ratio 的 max/min 系数 clamp、bias correction、两种 eps mode、零范数回退（系数取 1.0）。与 torch_npu 官方 NpuFusedLamb 同语义对照：一阶矩逐比特一致，参数差 1 ulp。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 视图：验证数据 ===== -->
+<section id="verify">
+  <div class="wrap">
+    <h2><span class="no">07</span>验证：三层证据链与诚实的负面结论</h2>
+    <p class="lead">契约测试在 CPU 上即可跑，真机验证收敛与交叉一致性，端到端确认量化路径真实触发且载荷减半。</p>
+    <div class="grid3" style="margin-bottom:30px">
+      <div class="card"><span class="tag ok">第一层</span><h4>契约测试</h4><p>独立 numpy oracle 逐比特对比，无需加速卡即可运行，覆盖三个模块。</p></div>
+      <div class="card"><span class="tag ok">第二层</span><h4>真机交叉验证</h4><p>Lion 引擎 5 步与手写 oracle bitwise 相等；LAMB 对照 NpuFusedLamb，状态逐比特一致。</p></div>
+      <div class="card"><span class="tag ok">第三层</span><h4>端到端</h4><p>hpZ ZeRO-3 两卡 8 步，量化开关 loss 终差 1.7e-4，权重载荷 33152→16592 B（−50%）。</p></div>
+    </div>
+    <h3>性能数据（Ascend 910B4，5 次中位数，链式 in-place vs 显式两步）</h3>
+    <div style="overflow-x:auto">
+      <table class="dtable">
+        <thead><tr><th>操作</th><th>配置</th><th class="num">之前</th><th class="num">之后</th><th class="num">加速比</th></tr></thead>
+        <tbody>
+          <tr><td>FusedLamb</td><td>128 参数 / 162M 元素</td><td class="num">127.0 ms</td><td class="num">112.6 ms</td><td class="num">1.13×</td></tr>
+          <tr><td>FusedLion</td><td>128 参数 / 162M 元素</td><td class="num">64.3 ms</td><td class="num">49.1 ms</td><td class="num">1.31×</td></tr>
+          <tr><td>quantize</td><td>1M 元素 / 1024 组</td><td class="num">0.50 ms</td><td class="num">0.39 ms</td><td class="num">1.28×</td></tr>
+          <tr><td>quantize</td><td>64M 元素 / 1024 组</td><td class="num">4.82 ms</td><td class="num">4.76 ms</td><td class="num">1.01×</td></tr>
+          <tr><td>dequantize</td><td>64M 元素 / 1024 组</td><td class="num">1.21 ms</td><td class="num">1.12 ms</td><td class="num">1.08×</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 style="margin-top:30px">不回避的两个限制</h3>
+    <div class="grid2">
+      <div class="card">
+        <span class="tag warn">负面结论</span>
+        <h4>机内场景 hpZ 反而更慢</h4>
+        <p>实测 HCCL all_gather 4.7–16.2 GB/s，量化盈亏平衡带宽 14.4 GB/s；该机内链路上 hpZ 为 fp16 基线的 0.62–0.97×。收益依赖跨节点长链路，数据与环境已完整写入 PR。</p>
+      </div>
+      <div class="card">
+        <span class="tag warn">已知偏差</span>
+        <h4>除法 1 ulp 偏差</h4>
+        <p>昇腾 fp32 除法约 5% 的值差 1 ulp。各 rank 同值、相对误差 ~1e-7 比量化误差 ~1e-2 小五个数量级，且线格式瞬态、不落 checkpoint，有界且安全。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">DeepSpeed PR #8627 · issue #8626 · 作者 VenusTZZ (Zizhao Tang) · 本页数据均来自 PR/issue 原文，交互计算在浏览器本地实时完成</div>
+</footer>
+
+<script>
+/* ===== 导航 scrollspy ===== */
+const navAs=[...document.querySelectorAll('#navLinks a')];
+const secs=navAs.map(a=>document.querySelector(a.getAttribute('href')));
+const spy=new IntersectionObserver(es=>{
+  es.forEach(e=>{if(e.isIntersecting){
+    const id='#'+e.target.id;
+    navAs.forEach(a=>a.classList.toggle('active',a.getAttribute('href')===id));
+  }});
+},{rootMargin:'-45% 0px -50% 0px'});
+secs.forEach(s=>spy.observe(s));
+
+/* ===== OpBuilder 后端分发 ===== */
+const OPS=['FusedLion','FusedLamb','Quantizer'];
+const STATES={
+  cuda:{all:'impl',labels:['CUDA 内核','CUDA 内核','CUDA 内核']},
+  supa:{all:'impl',labels:['#8054 纯torch','#8054 纯torch','#8054 纯torch']},
+  'npu-before':{all:'miss',labels:['NotImplemented','NotImplemented','NotImplemented']},
+  'npu-after':{all:'new',labels:['NPUFusedLion','NPUFusedLamb','NPUQuantizer']}
+};
+const STATE_TEXT={impl:['已实现','bstate impl'],miss:['未实现','bstate miss'],new:['本 PR 新增','bstate new']};
+const builderMap=document.getElementById('builderMap');
+const crashTrace=document.getElementById('crashTrace');
+function renderBuilder(be){
+  const st=STATES[be];
+  builderMap.innerHTML=OPS.map((op,i)=>{
+    const [txt,cls]=STATE_TEXT[st.all];
+    return `<div class="bnode"><div class="bname">${op}</div><div class="${cls}">${txt} · ${st.labels[i]}</div></div>`;
+  }).join('');
+  crashTrace.classList.toggle('show',be==='npu-before');
+}
+document.getElementById('backendTabs').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));
+  renderBuilder(b.dataset.be);
+});
+renderBuilder('cuda');
+
+/* ===== hpZ 步进器 ===== */
+const HPZ_STEPS=[
+  {h:'① 展平分组',p:'把连续张量拉平后切成 groups 个等长组，每组独立量化；numel 必须能被 groups 整除。',c:'flat.view(groups, numel/groups)'},
+  {h:'② 求每组 scale',p:'scale = 2^b / (2·max(|x|))；max 为 0 的空组 scale 取 1.0。实际发送的是它的倒数 params = 1/scale。',c:'scale = 256 / (2·maxv);  stored = 1/scale'},
+  {h:'③ 向零截断并 clamp',p:'q = trunc(x·scale)，再夹到 [−2^(b−1), 2^(b−1)−1]。trunc 对应 CUDA 的 static_cast，不能换成四舍五入。',c:'q = trunc(x·scale).clamp(-128,127)'},
+  {h:'④ 压缩字节并通信',p:'int8 只作为通信载荷：量化 → 搬运字节 → 对端接收，训练计算全程保持 fp16/bf16，载荷恰好减半。',c:'payload: 33152 B → 16592 B (−50%)'},
+  {h:'⑤ 反量化恢复',p:'对端用 q · params 乘回原值，得到 fp16 近似值；量化开关两条 loss 轨迹重合，终差 1.7e-4。',c:"x' = q · (1/scale)"}
+];
+let hpzIdx=0;
+const hpzBody=document.getElementById('hpzBody');
+const hpzDots=[...document.querySelectorAll('#hpzDots .step-dot')];
+function renderHpz(){
+  const s=HPZ_STEPS[hpzIdx];
+  hpzBody.innerHTML=`<h4>${s.h}</h4><p>${s.p}</p><pre>${s.c}</pre>`;
+  hpzDots.forEach((d,i)=>d.classList.toggle('on',i===hpzIdx));
+  document.getElementById('hpzPrev').disabled=hpzIdx===0;
+  document.getElementById('hpzNext').disabled=hpzIdx===HPZ_STEPS.length-1;
+}
+document.getElementById('hpzPrev').onclick=()=>{if(hpzIdx>0){hpzIdx--;renderHpz();}};
+document.getElementById('hpzNext').onclick=()=>{if(hpzIdx<HPZ_STEPS.length-1){hpzIdx++;renderHpz();}};
+hpzDots.forEach((d,i)=>d.onclick=()=>{hpzIdx=i;renderHpz();});
+renderHpz();
+
+/* ===== 量化 playground ===== */
+let pgBits=8;
+const pgInput=document.getElementById('pgInput');
+const pgBody=document.getElementById('pgBody');
+const pgSummary=document.getElementById('pgSummary');
+function truncTowardZero(v){return v>=0?Math.floor(v):Math.ceil(v);}
+function renderPg(){
+  const bits=pgBits, qmin=-(1<<(bits-1)), qmax=(1<<(bits-1))-1;
+  const xs=pgInput.value.split(',').map(s=>parseFloat(s.trim())).filter(v=>!Number.isNaN(v));
+  if(!xs.length){pgBody.innerHTML='';pgSummary.innerHTML='';return;}
+  const maxv=Math.max(...xs.map(v=>Math.abs(v)),0);
+  const scale=maxv===0?1:Math.pow(2,bits)/(2*maxv);
+  const params=1/scale;
+  let errSum=0,mismatch=0;
+  pgBody.innerHTML=xs.map(x=>{
+    const scaled=x*scale;
+    const qt=Math.max(qmin,Math.min(qmax,truncTowardZero(scaled)));
+    const qr=Math.max(qmin,Math.min(qmax,Math.round(scaled)));
+    if(qt!==qr)mismatch++;
+    const deq=qt*params, err=Math.abs(x-deq);errSum+=err;
+    return `<tr><td class="v">${x}</td><td>${scaled.toFixed(3)}</td><td class="trunc">${qt}</td><td class="round">${qr}</td><td>${deq.toFixed(4)}</td><td>${err.toFixed(4)}</td></tr>`;
+  }).join('');
+  pgSummary.innerHTML=
+    `<span>组数 <b>1</b>（整表一组演示）</span><span>scale <b>${scale.toFixed(4)}</b></span><span>发送 params=1/scale <b>${params.toFixed(5)}</b></span>
+     <span>截断/四舍五入不一致 <b>${mismatch} 个</b></span><span>平均绝对误差 <b>${(errSum/xs.length).toFixed(4)}</b></span>`;
+}
+pgInput.addEventListener('input',renderPg);
+document.getElementById('pgBits').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));
+  pgBits=parseInt(b.dataset.bits,10);renderPg();
+});
+renderPg();
+
+/* ===== int4 nibble 打包 ===== */
+const nibVals=[3,-2,7,-8,-5,1];
+const nibWrap=document.getElementById('nibbleBytes');
+const byteDetail=document.getElementById('byteDetail');
+function to4bit(v){return v&0x0F;}
+const nibBytes=[];
+for(let i=0;i<nibVals.length;i+=2){
+  const lo=to4bit(nibVals[i]), hi=to4bit(nibVals[i+1]);
+  nibBytes.push({lo,hi,packed:lo|(hi<<4),rawLo:nibVals[i],rawHi:nibVals[i+1]});
+}
+function bin8(v){return v.toString(2).padStart(8,'0');}
+function bin4(v){return v.toString(2).padStart(4,'0');}
+nibWrap.innerHTML=nibBytes.map((b,i)=>
+  `<div class="byte-box" data-i="${i}"><div class="bits">${bin8(b.packed)}</div><div class="lbl">BYTE ${i}</div></div>`).join('');
+nibWrap.addEventListener('click',e=>{
+  const box=e.target.closest('.byte-box');if(!box)return;
+  [...nibWrap.children].forEach(x=>x.classList.toggle('sel',x===box));
+  const b=nibBytes[parseInt(box.dataset.i,10)];
+  byteDetail.innerHTML=`BYTE 拆解 → 高四位 <b>${bin4(b.hi)} = ${b.rawHi}</b>（奇数元素，补码）｜低四位 <b>${bin4(b.lo)} = ${b.rawLo}</b>（偶数元素）｜打包值 ${b.packed}`;
+});
+
+/* ===== 优化器 tabs ===== */
+document.getElementById('optTabs').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));
+  ['lion','lamb'].forEach(k=>{
+    document.getElementById('pane-'+k).classList.toggle('on',b.dataset.opt===k);
+  });
+});
+</script>
+</body>
+</html>
