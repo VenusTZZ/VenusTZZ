@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PR #8627 · NPU 量化通信原理交互讲解</title>
+<meta name="note:pr" content="8627">
+<meta name="note:series" content="DeepSpeed · ZeRO++">
+<meta name="note:accent" content="#4fd1a5">
+<meta name="note:tags" content="hpZ int8|qgZ int4|4× 910B4|payload −50%">
+<meta name="note:description" content="为 NPU 后端实现 FusedLion、FusedLamb 与 Quantizer，让 Lion/LAMB 训练和 hpZ（int8 权重）、qgZ（int4 梯度）量化通信从初始化崩溃变为可用。纯 PyTorch 实现，契约逐比特对齐 CUDA。">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e141b'/%3E%3Crect x='6' y='6' width='9' height='9' rx='2' fill='%234fd1a5'/%3E%3Crect x='17' y='6' width='9' height='9' rx='2' fill='%23e8a44a'/%3E%3Crect x='6' y='17' width='9' height='9' rx='2' fill='%235cc8e0'/%3E%3Crect x='17' y='17' width='9' height='9' rx='2' fill='%237fb3ff'/%3E%3C/svg%3E">
 <style>
 :root{

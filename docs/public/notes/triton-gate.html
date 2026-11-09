@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PR #8868 · Triton 设备守卫加速器无关化 — 交互原理</title>
+<meta name="note:pr" content="8868">
+<meta name="note:series" content="DeepSpeed · Triton">
+<meta name="note:accent" content="#e8a44a">
+<meta name="note:tags" content="3 层守卫|35 files|591 tests|0 新增失败">
+<meta name="note:description" content="重点不是「让 Triton 支持 NPU」，而是设计一套机制，让每个硬件平台自己回答：后端能不能跑、这个 kernel 能不能跑、跑不了该用什么实现。三层 gate，CUDA 默认路径零变化。">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230E131B'/%3E%3Cpath d='M6 9h12M6 15h12M9 6v12M15 6v12' stroke='%23E08A4C' stroke-width='1.6'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://miaoda.feishu.cn">
 <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">

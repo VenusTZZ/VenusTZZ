@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR #8962 · AutoTP 多查询 GPTBigCode 修复原理</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e141b'/%3E%3Crect x='6' y='6' width='20' height='7' rx='1.5' fill='%234ea8de'/%3E%3Crect x='6' y='15' width='20' height='11' rx='1.5' fill='%23e8a34d'/%3E%3C/svg%3E">
+<style>
+/* ============ 设计 token：分布式系统观测台 ============ */
+:root{
+  --bg:#0e141b; --panel:#141d27; --panel-2:#1a2531; --line:#263544; --line-soft:#1e2b38;
+  --txt:#d6e0ea; --txt-2:#8fa0b0; --txt-3:#5f7182;
+  --q:#4ea8de; --q-dim:#2c5f85; --kv:#e8a34d; --kv-dim:#8a5e27;
+  --err:#e0625c; --ok:#5cbf8f; --accent:#7dd3fc; --purple:#9d8cdf;
+  --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+::selection{background:#2c5f85;color:#fff}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ============ 顶部导航 ============ */
+header.nav{position:sticky;top:0;z-index:50;background:rgba(14,20,27,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line-soft)}
+.nav-inner{max-width:1080px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.brand{font-family:var(--mono);font-size:13px;letter-spacing:.5px;color:var(--txt);display:flex;align-items:center;gap:8px;white-space:nowrap}
+.brand b{color:var(--accent)}
+.nav-links{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
+.nav-links a{color:var(--txt-2);font-size:13px;padding:6px 10px;border-radius:5px}
+.nav-links a:hover{color:var(--txt);background:var(--panel-2);text-decoration:none}
+
+/* ============ Hero ============ */
+.hero{padding:72px 0 48px;border-bottom:1px solid var(--line-soft);position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:0;background-image:linear-gradient(var(--line-soft) 1px,transparent 1px),linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);background-size:44px 44px;opacity:.35;pointer-events:none}
+.hero .wrap{position:relative}
+.tag{display:inline-block;font-family:var(--mono);font-size:12px;color:var(--accent);border:1px solid var(--line);border-radius:4px;padding:3px 9px;margin-bottom:20px;background:var(--panel)}
+.hero h1{font-size:34px;line-height:1.3;font-weight:700;letter-spacing:-.5px;max-width:780px}
+.hero h1 .hl{color:var(--q)}
+.hero p.sub{margin-top:16px;color:var(--txt-2);max-width:720px;font-size:16px}
+.hero-meta{display:flex;gap:28px;flex-wrap:wrap;margin-top:28px;font-family:var(--mono);font-size:12.5px;color:var(--txt-3)}
+.hero-meta span b{color:var(--txt-2);font-weight:400}
+
+/* ============ 通用 section ============ */
+section.block{padding:56px 0;border-bottom:1px solid var(--line-soft)}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:10px}
+.sec-no{font-family:var(--mono);font-size:13px;color:var(--txt-3)}
+h2{font-size:24px;font-weight:700;letter-spacing:-.3px}
+.sec-desc{color:var(--txt-2);max-width:760px;margin-bottom:30px}
+h3{font-size:16px;font-weight:600;margin:26px 0 12px}
+p.note{color:var(--txt-2);font-size:14px;margin-top:12px}
+code,.mono{font-family:var(--mono);font-size:.9em}
+p code,li code{background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--accent)}
+
+/* ============ 图例 ============ */
+.legend{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:18px;font-size:13px;color:var(--txt-2)}
+.legend i{display:inline-block;width:13px;height:13px;border-radius:3px;margin-right:7px;vertical-align:-2px}
+.legend .q{background:var(--q)} .legend .kv{background:var(--kv)}
+
+/* ============ 融合 c_attn 静态结构图 ============ */
+.fused-demo{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.tensor{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;flex:1;min-width:260px}
+.tensor-title{font-family:var(--mono);font-size:12.5px;color:var(--txt-2);margin-bottom:12px}
+.weight-block{display:flex;flex-direction:column;gap:3px}
+.q-rows{display:flex;gap:3px}
+.q-head{flex:1;background:var(--q);border-radius:3px;height:46px;display:flex;align-items:flex-end;justify-content:center;font-family:var(--mono);font-size:11px;color:#0b121a;padding-bottom:4px;font-weight:600}
+.kv-rows{display:flex;gap:3px}
+.kv-part{flex:1;background:var(--kv);border-radius:3px;height:30px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:#1a1206;font-weight:600}
+.dim-label{font-family:var(--mono);font-size:11.5px;color:var(--txt-3);margin-top:10px;text-align:right}
+.explainer{flex:1;min-width:260px}
+.explainer ul{list-style:none}
+.explainer li{padding:10px 0;border-bottom:1px solid var(--line-soft);color:var(--txt-2);font-size:14px}
+.explainer li:last-child{border-bottom:0}
+.explainer b{color:var(--txt);font-weight:600}
+
+/* ============ 模拟器控件 ============ */
+.console{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:24px}
+.ctrl-row{display:flex;gap:22px;flex-wrap:wrap;align-items:center}
+.ctrl{display:flex;align-items:center;gap:9px}
+.ctrl-label{font-size:13px;color:var(--txt-2);min-width:74px}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{background:var(--panel-2);color:var(--txt-2);border:0;padding:7px 15px;font-family:var(--mono);font-size:12.5px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--q);color:#0b121a;font-weight:600}
+.seg.fix button.on{background:var(--ok)}
+.verdict{margin-top:16px;padding:12px 14px;border-radius:6px;font-size:13.5px;display:flex;gap:10px;align-items:flex-start}
+.verdict.ok{background:rgba(92,191,143,.1);border:1px solid rgba(92,191,143,.35);color:#9fe0c2}
+.verdict.err{background:rgba(224,98,92,.1);border:1px solid rgba(224,98,92,.35);color:#f0a09c}
+.verdict code{color:inherit;background:rgba(0,0,0,.25);border-color:transparent}
+
+/* ============ rank 卡片 ============ */
+.ranks{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.rank-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;transition:border-color .2s}
+.rank-card.broken{border-color:rgba(224,98,92,.55)}
+.rank-name{font-family:var(--mono);font-size:12.5px;color:var(--txt-2);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.badge{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:3px;letter-spacing:.3px}
+.badge.bad{background:rgba(224,98,92,.18);color:#f0a09c}
+.badge.good{background:rgba(92,191,143,.15);color:#9fe0c2}
+.shard-vis{display:flex;gap:4px;height:86px;align-items:stretch;margin-bottom:10px}
+.sv-q{display:flex;flex-direction:column;gap:2px;flex:0 0 auto;width:64px}
+.sv-q .qh{background:var(--q);border-radius:2px;flex:1;min-height:0}
+.sv-q .qh.empty{background:repeating-linear-gradient(45deg,rgba(224,98,92,.18),rgba(224,98,92,.18) 4px,rgba(224,98,92,.07) 4px,rgba(224,98,92,.07) 8px);border:1px dashed rgba(224,98,92,.5)}
+.sv-kv{display:flex;flex-direction:column;gap:2px;flex:1}
+.sv-kv .krow{background:var(--kv);border-radius:2px;flex:1}
+.shapes{font-family:var(--mono);font-size:11.5px;color:var(--txt-2);line-height:1.9}
+.shapes b{color:var(--txt);font-weight:400}
+.shapes .zero{color:var(--err)}
+
+/* ============ 03 梯度布局对比 ============ */
+.layout-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.lc{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
+.lc-head{font-family:var(--mono);font-size:13px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.lc-head .dev{color:var(--txt-2)}
+.lc-sub{font-family:var(--mono);font-size:11.5px;color:var(--txt-3);margin-bottom:14px}
+.mem{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;margin-bottom:14px}
+.mem span{aspect-ratio:1;border-radius:2px;background:var(--q-dim)}
+.mem.trans span{background:var(--purple);opacity:.55}
+.mem span.kv{background:var(--kv-dim)}
+.mem.trans span.kv{background:var(--kv);opacity:.85}
+.stride{font-family:var(--mono);font-size:11.5px;color:var(--txt-2);line-height:2}
+.stride b{color:var(--txt);font-weight:400}
+.flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;font-family:var(--mono);font-size:11.5px}
+.chip{border:1px solid var(--line);background:var(--panel-2);border-radius:5px;padding:5px 10px;color:var(--txt-2)}
+.chip.bad{border-color:rgba(224,98,92,.5);color:#f0a09c;background:rgba(224,98,92,.08)}
+.chip.good{border-color:rgba(92,191,143,.5);color:#9fe0c2;background:rgba(92,191,143,.08)}
+.arrow{color:var(--txt-3)}
+
+/* ============ 04 工作流 stepper ============ */
+.stepper{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.step-bar{display:flex;border-bottom:1px solid var(--line)}
+.step-tab{flex:1;background:transparent;border:0;color:var(--txt-3);font-family:var(--mono);font-size:12px;padding:13px 6px;cursor:pointer;border-right:1px solid var(--line-soft);white-space:nowrap;overflow:hidden}
+.step-tab:last-child{border-right:0}
+.step-tab.on{color:var(--accent);background:var(--panel-2);box-shadow:inset 0 -2px 0 var(--accent)}
+.step-body{padding:26px;display:grid;grid-template-columns:1.2fr 1fr;gap:26px;align-items:center}
+.step-body h3{margin-top:0}
+.step-body p{color:var(--txt-2);font-size:14px}
+.step-vis{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:18px;min-height:170px;display:flex;flex-direction:column;justify-content:center;gap:10px}
+.mini-row{display:flex;gap:6px;align-items:stretch;height:34px}
+.mini-q{background:var(--q);border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10.5px;color:#0b121a;font-weight:600}
+.mini-kv{background:var(--kv);border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10.5px;color:#1a1206;font-weight:600}
+.mini-ghost{border:1px dashed var(--line);border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--txt-3)}
+.mini-ar{font-family:var(--mono);font-size:10.5px;color:var(--purple);border:1px solid var(--line);border-radius:4px;display:flex;align-items:center;justify-content:center;padding:0 8px}
+.step-nav{display:flex;justify-content:space-between;padding:0 26px 22px}
+.step-nav button{background:var(--panel-2);border:1px solid var(--line);color:var(--txt-2);border-radius:6px;padding:8px 18px;font-family:var(--mono);font-size:12.5px;cursor:pointer}
+.step-nav button:disabled{opacity:.35;cursor:default}
+.step-nav button:hover:not(:disabled){border-color:var(--q);color:var(--txt)}
+
+/* ============ 05 修复方案 ============ */
+.fix-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.fix-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
+.fix-file{font-family:var(--mono);font-size:12.5px;color:var(--accent);margin-bottom:10px}
+.fix-card ul{list-style:none}
+.fix-card li{font-size:13.5px;color:var(--txt-2);padding:6px 0 6px 16px;position:relative}
+.fix-card li::before{content:"";position:absolute;left:0;top:14px;width:5px;height:5px;border-radius:50%;background:var(--q)}
+.fix-card li b{color:var(--txt);font-weight:600}
+
+/* ============ 06 验证矩阵 ============ */
+table.matrix{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:13.5px}
+table.matrix th,table.matrix td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line-soft)}
+table.matrix th{background:var(--panel-2);color:var(--txt-2);font-weight:600;font-size:12.5px}
+table.matrix tr:last-child td{border-bottom:0}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:1px}
+.dot.g{background:var(--ok)} .dot.r{background:var(--err)} .dot.y{background:var(--kv)}
+.caveat{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--kv);border-radius:8px;padding:18px 20px;margin-top:18px}
+.caveat h3{margin:0 0 8px}
+.caveat p{font-size:13.5px;color:var(--txt-2)}
+.formula{font-family:var(--mono);font-size:13px;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-top:12px;color:var(--txt);overflow-x:auto}
+footer{padding:34px 0 46px;color:var(--txt-3);font-size:12.5px}
+footer .mono{font-size:12px}
+
+@media (max-width:760px){
+  .hero{padding:52px 0 38px}.hero h1{font-size:26px}
+  .ranks,.layout-grid,.step-body,.fix-grid{grid-template-columns:1fr}
+  .step-tab{font-size:10.5px;padding:10px 3px}
+  .step-body{padding:20px}
+  table.matrix{font-size:12.5px}table.matrix th,table.matrix td{padding:9px 9px}
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <div class="brand"><svg width="16" height="16" viewBox="0 0 32 32"><rect x="3" y="3" width="13" height="13" rx="2" fill="#4ea8de"/><rect x="16" y="3" width="13" height="13" rx="2" fill="#4ea8de" opacity=".55"/><rect x="3" y="16" width="13" height="13" rx="2" fill="#e8a34d"/><rect x="16" y="16" width="13" height="13" rx="2" fill="#e8a34d" opacity=".55"/></svg>DeepSpeed <b>PR #8962</b></div>
+    <nav class="nav-links">
+      <a href="#background">背景结构</a>
+      <a href="#simulator">分片模拟器</a>
+      <a href="#layout">梯度布局</a>
+      <a href="#workflow">工作流程</a>
+      <a href="#fix">修复方案</a>
+      <a href="#validation">验证矩阵</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<div class="hero">
+  <div class="wrap">
+    <span class="tag">bug fix · training · AutoTP</span>
+    <h1>修复张量并行度 &gt; 1 时，<span class="hl">多查询 GPTBigCode</span> 的空分片与非连续梯度故障</h1>
+    <p class="sub">一个 PR 解决两个正交缺陷：分片口径错误（transformers 5.x 暴露 num_key_value_heads=1 导致部分 rank 拿到空 attention），以及 torch_npu 转置非连续梯度被 HCCL 拒绝。切换下方控件，观察修复前后每个 rank 的实际张量形状。</p>
+    <div class="hero-meta">
+      <span><b>repo</b> deepspeedai/DeepSpeed</span>
+      <span><b>pr</b> #8962 → issue #8961</span>
+      <span><b>NPU</b> 4×910B4 / CANN 8.5.1</span>
+      <span><b>CUDA</b> 4×A100 / NCCL 2.29</span>
+      <span><b>Δlogit</b> 1.2e-7</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 1. 背景结构 ===== -->
+<section class="block" id="background">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">01</span><h2>先看融合权重的物理布局</h2></div>
+    <p class="sec-desc">GPTBigCode 采用多查询注意力（MQA）：全模型只有 1 个 KV head，所有 query head 共享同一组 K/V。它的融合投影 <code>c_attn</code> 把 Q、K、V 拼在同一个权重里，排布方式是「query 行在前，整块共享 K/V 在后」。</p>
+    <div class="legend">
+      <span><i class="q"></i>Query 行：按 head 切分（各 rank 不同）</span>
+      <span><i class="kv"></i>K/V 块：整块复制（每个 rank 完整保留）</span>
+    </div>
+    <div class="fused-demo">
+      <div class="tensor">
+        <div class="tensor-title">c_attn.weight = [out_features, in_features]，hidden = 32，heads = 4</div>
+        <div class="weight-block">
+          <div class="q-rows">
+            <div class="q-head">Q h0</div><div class="q-head">Q h1</div><div class="q-head">Q h2</div><div class="q-head">Q h3</div>
+          </div>
+          <div class="kv-rows">
+            <div class="kv-part">K（共享，8 行）</div>
+            <div class="kv-part">V（共享，8 行）</div>
+          </div>
+        </div>
+        <div class="dim-label">out = 32（Q）+ 16（K/V）= 48 行　·　in = 32</div>
+      </div>
+      <div class="explainer">
+        <ul>
+          <li><b>Q 行是分片的</b>：TP 切分时 <code>_bigcode_type_transpose</code> 只切这部分，每个 rank 持有 hidden/TP 行。</li>
+          <li><b>K/V 块是复制的</b>：任何 TP 度下，每个 rank 都持有完整的 16 行 K/V，不参与切分。</li>
+          <li><b>复制带来梯度问题</b>：各 rank 只对自己的 Q head 产生 K/V 梯度，必须 all-reduce 求和，否则各 rank 上本应相同的 K/V 行会更新出不同的值。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 2. 分片模拟器 ===== -->
+<section class="block" id="simulator">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">02</span><h2>分片模拟器：修复前到底发生了什么</h2></div>
+    <p class="sec-desc">示例模型 hidden=32、4 个 attention head、MQA。切换 TP 度、transformers 版本和修复状态，观察每个 rank 拿到的 <code>c_attn</code> 与 <code>c_proj</code> 形状。</p>
+
+    <div class="console">
+      <div class="ctrl-row">
+        <div class="ctrl"><span class="ctrl-label">TP 并行度</span>
+          <div class="seg" id="seg-tp"><button data-v="2" class="on">TP=2</button><button data-v="4">TP=4</button></div>
+        </div>
+        <div class="ctrl"><span class="ctrl-label">transformers</span>
+          <div class="seg" id="seg-tf"><button data-v="4" class="on">4.44.2</button><button data-v="5">5.x</button></div>
+        </div>
+        <div class="ctrl"><span class="ctrl-label">代码状态</span>
+          <div class="seg fix" id="seg-fix"><button data-v="0" class="on">修复前 master</button><button data-v="1">本 PR 修复后</button></div>
+        </div>
+      </div>
+      <div class="verdict" id="verdict"></div>
+    </div>
+
+    <div class="ranks" id="ranks"></div>
+    <p class="note" id="sim-note"></p>
+  </div>
+</section>
+
+<script>
+/* ============ 分片模拟器状态与渲染 ============ */
+const state={tp:2,tf:4,fix:0};
+const HIDDEN=32, HEADS=4, KV_ROWS=16;
+
+function shardList(total,parts){ // 整除分片，返回每片大小
+  const base=Math.floor(total/parts),arr=Array(parts).fill(base);
+  for(let i=0;i<total%parts;i++)arr[i]++;
+  return arr;
+}
+function compute(){
+  // 有效分片基数：修复后强制按 Q head；修复前 4.x 回退 attention head，5.x 错误地用 KV head=1
+  const count = state.fix ? HEADS : (state.tf===4 ? HEADS : 1);
+  const qShard = shardList(HIDDEN, count).concat(Array(Math.max(0,state.tp-count)).fill(0)).slice(0,state.tp);
+  const broken = state.fix===0 && state.tf===5;
+  return {qShard,broken,count};
+}
+function render(){
+  const {qShard,broken,count}=compute();
+  const box=document.getElementById('ranks');
+  box.innerHTML='';
+  qShard.forEach((q,i)=>{
+    const isEmpty=q===0;
+    const card=document.createElement('div');
+    card.className='rank-card'+(isEmpty?' broken':'');
+    const qHeads=[];
+    const localHeads=q/8;
+    for(let k=0;k<Math.max(localHeads,1);k++) qHeads.push(`<div class="qh${isEmpty?' empty':''}"></div>`);
+    card.innerHTML=`
+      <div class="rank-name">rank ${i}
+        <span class="badge ${isEmpty?'bad':'good'}">${isEmpty?'EMPTY SHARD':'healthy'}</span></div>
+      <div class="shard-vis">
+        <div class="sv-q" style="${isEmpty?'width:24px':''}">${qHeads.join('')}</div>
+        <div class="sv-kv"><div class="krow"></div><div class="krow"></div></div>
+      </div>
+      <div class="shapes">
+        c_attn.weight = <b>(${q+KV_ROWS}, 32)</b><br>
+        c_proj.weight = (32, <b class="${isEmpty?'zero':''}">${q}</b>)<br>
+        num_heads = <b class="${isEmpty?'zero':''}">${localHeads}</b>　kv_heads = 1
+      </div>`;
+    box.appendChild(card);
+  });
+  const v=document.getElementById('verdict');
+  if(broken){
+    v.className='verdict err';
+    v.innerHTML=`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e0625c" stroke-width="2" style="flex:0 0 auto;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.1"/></svg>
+      <div>分片基数被错误地取为 <code>num_key_value_heads = 1</code>。TP=${state.tp} 时只有 ${count} 个 rank 能分到 query 行，其余 rank 的 <code>c_proj</code> 输入维度为 0。NPU 反向报 <code>cannot reshape tensor of 0 elements</code>；CUDA 前向 SDPA 报 <code>heads in key/value must divide heads in query</code>，另一 rank 卡在 all-reduce 上 hang 住。</div>`;
+  }else{
+    v.className='verdict ok';
+    const reason=state.fix
+      ? `本 PR 识别出 bigcodetype 复制型 K/V 布局，分片基数强制使用 <code>num_attention_heads = ${HEADS}</code>，每个 rank 持有 ${HIDDEN/state.tp} 行 query 加完整 K/V 块。`
+      : `transformers 4.44.2 不暴露 <code>num_key_value_heads</code>，元数据回退到 attention head 数 ${HEADS}，空分片问题不存在（但 NPU 仍可能触发缺陷 B，见下一节）。`;
+    v.innerHTML=`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5cbf8f" stroke-width="2" style="flex:0 0 auto;margin-top:2px"><path d="M4 12.5l5 5L20 7"/></svg><div>${reason}</div>`;
+  }
+  document.getElementById('sim-note').textContent =
+    broken ? '注意：rank 0 往往不是直接报错，而是阻塞在 c_proj 的行并行 all-reduce 上，等待已经失败的 rank —— 表象是 hang，根因在更早的空分片。'
+           : 'K/V 块在所有 rank 上形状一致（16 行），它们的梯度由专用 hook 做 all-reduce，保证更新后各 rank 的 K/V 行完全相同。';
+}
+document.querySelectorAll('#seg-tp,#seg-tf,#seg-fix').forEach(seg=>{
+  const key=seg.id==='seg-tp'?'tp':seg.id==='seg-tf'?'tf':'fix';
+  seg.addEventListener('click',e=>{
+    const btn=e.target.closest('button');if(!btn)return;
+    seg.querySelectorAll('button').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    state[key]=Number(btn.dataset.v);
+    render();
+  });
+});
+render();
+</script>
+
+<!-- ===== 3. 缺陷 B：梯度布局 ===== -->
+<section class="block" id="layout">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">03</span><h2>缺陷 B：同一个 matmul，两种内存布局</h2></div>
+    <p class="sec-desc">K/V 梯度 all-reduce 操作的是融合梯度 <code>narrow()</code> 出的视图。CUDA 的 matmul 反向返回连续的 <code>[out, in]</code> 梯度；torch_npu 返回转置的非连续布局。NCCL 与 HCCL 都拒绝非连续集合通信输入——这与 transformers 版本无关，NPU 在 4.44.2 上也会失败。</p>
+    <div class="layout-grid">
+      <div class="lc">
+        <div class="lc-head"><span class="dev">CUDA / NCCL</span><span class="badge good">contiguous</span></div>
+        <div class="lc-sub">grad (32, 32)　stride (32, 1)　narrow → KV (16, 32)</div>
+        <div class="mem" id="mem-cuda"></div>
+        <div class="stride">is_contiguous() = <b>True</b>　·　视图按行连续存放</div>
+        <div class="flow"><span class="chip good">narrow 视图</span><span class="arrow">→</span><span class="chip good">all_reduce 原地执行</span><span class="arrow">→</span><span class="chip">零额外拷贝</span></div>
+      </div>
+      <div class="lc">
+        <div class="lc-head"><span class="dev">NPU / HCCL（torch_npu）</span><span class="badge bad">non-contiguous</span></div>
+        <div class="lc-sub">grad (32, 32)　stride (1, 32)　clone() 保留转置布局</div>
+        <div class="mem trans" id="mem-npu"></div>
+        <div class="stride">is_contiguous() = <b style="color:#f0a09c">False</b>　·　narrow 后 KV 视图仍非连续</div>
+        <div class="flow"><span class="chip bad">narrow 视图</span><span class="arrow">→</span><span class="chip bad">HCCL: Tensors must be contiguous</span></div>
+      </div>
+    </div>
+    <h3>修复后的分支决策：不硬编码后端，按张量布局走</h3>
+    <div class="flow" style="font-size:12.5px">
+      <span class="chip">KV 视图 numel == 0？</span><span class="arrow">→</span><span class="chip">跳过（复制块在所有 rank 同时为空）</span>
+      <span class="arrow">|</span>
+      <span class="chip">连续？</span><span class="arrow">→</span><span class="chip good">原地 all_reduce</span>
+      <span class="arrow">|</span>
+      <span class="chip">非连续？</span><span class="arrow">→</span><span class="chip">.contiguous() 暂存</span><span class="arrow">→</span><span class="chip good">all_reduce</span><span class="arrow">→</span><span class="chip">copy_ 回 autograd 视图</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 4. 工作流程 ===== -->
+<section class="block" id="workflow">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">04</span><h2>一个训练 step 的完整工作流</h2></div>
+    <p class="sec-desc">点击步骤条或使用按钮逐步推进，观察前向、反向与 K/V 梯度求和在每个 rank 上的时序。</p>
+    <div class="stepper">
+      <div class="step-bar" id="step-bar"></div>
+      <div class="step-body">
+        <div>
+          <h3 id="step-title"></h3>
+          <p id="step-text"></p>
+        </div>
+        <div class="step-vis" id="step-vis"></div>
+      </div>
+      <div class="step-nav">
+        <button id="btn-prev">上一步</button>
+        <button id="btn-next">下一步</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 5. 修复方案 ===== -->
+<section class="block" id="fix">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">05</span><h2>代码改动落在四个文件</h2></div>
+    <p class="sec-desc">缺陷 A 的修复横跨分片元数据与引擎校验，缺陷 B 收敛在梯度 hook 内部，改动面控制在 413 行新增、23 行删除。</p>
+    <div class="fix-grid">
+      <div class="fix-card">
+        <div class="fix-file">fusedqkv_utils.py</div>
+        <ul>
+          <li>新增 <b>replicates_kv_block()</b>，按类名扫描识别 bigcodetype 复制型布局</li>
+          <li>类名从 <code>FUSED_QKV_TYPE_DICT</code> 派生，注册新布局零维护；避免 stringify 子树导致的 O(n²) 扫描</li>
+        </ul>
+      </div>
+      <div class="fix-card">
+        <div class="fix-file">auto_tp.py</div>
+        <ul>
+          <li>复制型布局：<b>tp_meta 用 num_attention_heads 覆盖分片基数</b></li>
+          <li>KV head 属性保持完整不切分；<code>num_key_value_groups</code> 从本地 Q 分片重算</li>
+          <li>属性缺失时保留模型原值，兼容老版本 transformers</li>
+        </ul>
+      </div>
+      <div class="fix-card">
+        <div class="fix-file">engine.py</div>
+        <ul>
+          <li><b>fail fast</b>：tp &gt; query head 数时，分片前直接抛带修复建议的 RuntimeError</li>
+          <li>非复制型布局保留原 warning 路径，不改变既有行为</li>
+        </ul>
+      </div>
+      <div class="fix-card">
+        <div class="fix-file">layers.py</div>
+        <ul>
+          <li>抽出 <b>_sum_replicated_kv_gradient()</b>：按布局决定原地通信还是暂存连续副本</li>
+          <li>结果写回 autograd 消费的视图，空 K/V 块直接跳过</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 6. 验证矩阵 ===== -->
+<section class="block" id="validation">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">06</span><h2>验证矩阵与诚实的边界</h2></div>
+    <p class="sec-desc">双后端 × 三版本交叉验证，PR 描述中同时显式列出未覆盖项。</p>
+    <table class="matrix">
+      <thead><tr><th style="width:26%">组合</th><th style="width:20%">修复前 master</th><th>本 PR</th></tr></thead>
+      <tbody>
+        <tr><td>CUDA / transformers 4.44.2</td><td><span class="dot g"></span>通过（梯度连续）</td><td><span class="dot g"></span>通过，staging 路径为 no-op</td></tr>
+        <tr><td>CUDA / transformers 5.20.2</td><td><span class="dot r"></span>SDPA 前向报错 + all-reduce 阻塞</td><td><span class="dot g"></span>TP=2 / TP=4 通过</td></tr>
+        <tr><td>NPU / transformers 4.44.2</td><td><span class="dot r"></span>Tensors must be contiguous</td><td><span class="dot g"></span>通过，走暂存分支</td></tr>
+        <tr><td>NPU / transformers 5.19.0</td><td><span class="dot r"></span>空分片 + 非连续梯度</td><td><span class="dot g"></span>TP=2 / TP=4 通过，Δlogit 1.2e-7</td></tr>
+      </tbody>
+    </table>
+    <div class="caveat">
+      <h3>遗留问题：梯度裁剪的重复计数（单独 issue 跟踪，本 PR 不改）</h3>
+      <p>全局 norm 把复制的 K/V 行在每个 TP rank 各计一次。TP=2 时 c_attn 的 norm 恰为单卡的 √2 倍，扣掉一份多余的 K/V 计数可精确复现单卡值。</p>
+      <div class="formula">‖grad‖²_tp = ‖Q‖² + TP · ‖K/V‖²　　⇒　　TP=2 时 c_attn norm = √2 × 单卡值（实测 1.414×）</div>
+    </div>
+    <p class="note">其他未覆盖：ZeRO stage 1/2/3 仅代码确认未跑真机；fp16/autocast 未验证；generate 与 past-KV-cache 路径未覆盖；非 MQA（multi_query=False）的前向失败是存量问题 #8927。</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="mono">PR #8962 · Fix AutoTP multi-query GPTBigCode training at TP &gt; 1　|　相关：issue #8961 · #8927 · PR #8928</div>
+    <p style="margin-top:8px">页面内张量形状与数值均来自 PR 描述与 diff；示意图用于讲解布局关系，不代表精确工程图。</p>
+  </div>
+</footer>
+
+<script>
+/* ============ 03 内存格子填充 ============ */
+function fillMem(id,trans){
+  const el=document.getElementById(id);
+  for(let i=0;i<64;i++){
+    const s=document.createElement('span');
+    if(i>=48)s.className='kv';
+    el.appendChild(s);
+  }
+}
+fillMem('mem-cuda');fillMem('mem-npu');
+
+/* ============ 04 工作流 stepper ============ */
+const steps=[
+  {t:'前向：本地 Q head 配合完整 K/V',
+   d:'每个 rank 用自己分到的 query 行和完整复制的 K/V 块执行 SDPA。rank 之间注意力计算独立，K/V 输入完全相同。',
+   v:()=>`<div class="mini-row"><div class="mini-q" style="flex:1">Q（本地分片）</div><div class="mini-kv" style="flex:1.2">K/V 完整块</div></div>
+          <div class="mini-row"><div class="mini-ghost" style="flex:1">SDPA → 本地注意力输出</div></div>`},
+  {t:'c_proj 行并行：all-reduce 汇合',
+   d:'各 rank 的注意力输出经输出投影后做行并行 all-reduce，求和得到完整前向结果。这也是空分片 rank 会拖垮整个通信的位置。',
+   v:()=>`<div class="mini-row"><div class="mini-q" style="flex:1">rank 0 输出</div><div class="mini-ar">all-reduce</div><div class="mini-ghost" style="flex:1">完整输出</div></div>
+          <div class="mini-row"><div class="mini-q" style="flex:1">rank 1 输出</div><div class="mini-ar" style="visibility:hidden">x</div><div class="mini-ghost" style="flex:1">Σ</div></div>`},
+  {t:'反向：matmul 产生 c_attn 梯度',
+   d:'同一个 matmul 反向在两套栈上返回不同布局：CUDA 给出连续 [out,in] 梯度，torch_npu 给出转置非连续梯度，需要实测 stride 才能区分。',
+   v:()=>`<div class="mini-row"><div class="mini-q" style="flex:1">Q 梯度行</div><div class="mini-kv" style="flex:1.2">K/V 梯度（部分）</div></div>
+          <div class="mini-row"><div class="mini-ghost" style="flex:1">CUDA: stride (32,1) 连续</div><div class="mini-ghost" style="flex:1.2">NPU: stride (1,32) 非连续</div></div>`},
+  {t:'K/V 梯度 hook：narrow 出复制行',
+   d:'hook 先 clone 融合梯度，再 narrow 出 K/V 行。K/V 是复制品，每个 rank 的梯度只来自自己的 Q head，只是完整梯度的一个部分和。',
+   v:()=>`<div class="mini-row"><div class="mini-ghost" style="flex:1">Q 行（不参与此通信）</div><div class="mini-kv" style="flex:1.2">narrow → K/V 视图</div></div>`},
+  {t:'布局分支：原地通信或暂存连续副本',
+   d:'连续视图直接原地 all-reduce，不产生额外分配；非连续视图先 .contiguous() 暂存，再交给 HCCL/NCCL。决策依据是张量布局而非后端名称。',
+   v:()=>`<div class="mini-row"><div class="mini-kv" style="flex:1">非连续视图</div><div class="mini-ar">.contiguous()</div><div class="mini-kv" style="flex:1">连续副本</div><div class="mini-ar">all-reduce</div></div>`},
+  {t:'结果写回，各 rank K/V 更新一致',
+   d:'求和后的梯度 copy 回 autograd 消费的视图，所有 rank 拿到相同的 K/V 梯度，SGD 更新后 K/V 行保持逐元素相同；空块在所有 rank 上同时跳过。',
+   v:()=>`<div class="mini-row"><div class="mini-kv" style="flex:1">copy_ 回视图</div><div class="mini-ar">= 完整 K/V 梯度</div></div>
+          <div class="mini-row"><div class="mini-ghost" style="flex:1">各 rank K/V 行：identical</div></div>`}
+];
+let cur=0;
+const bar=document.getElementById('step-bar');
+steps.forEach((s,i)=>{
+  const b=document.createElement('button');
+  b.className='step-tab'+(i===0?' on':'');
+  b.textContent=(i+1)+' '+(i===0?'前向':i===5?'一致':'');
+  b.addEventListener('click',()=>{cur=i;renderStep()});
+  bar.appendChild(b);
+});
+function renderStep(){
+  document.querySelectorAll('.step-tab').forEach((b,i)=>b.classList.toggle('on',i===cur));
+  document.getElementById('step-title').textContent=steps[cur].t;
+  document.getElementById('step-text').textContent=steps[cur].d;
+  document.getElementById('step-vis').innerHTML=steps[cur].v();
+  document.getElementById('btn-prev').disabled=cur===0;
+  document.getElementById('btn-next').disabled=cur===steps.length-1;
+}
+document.getElementById('btn-prev').addEventListener('click',()=>{if(cur>0){cur--;renderStep()}});
+document.getElementById('btn-next').addEventListener('click',()=>{if(cur<steps.length-1){cur++;renderStep()}});
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'&&cur<steps.length-1){cur++;renderStep()}
+  if(e.key==='ArrowLeft'&&cur>0){cur--;renderStep()}
+});
+renderStep();
+</script>
+
+</body>
+</html>

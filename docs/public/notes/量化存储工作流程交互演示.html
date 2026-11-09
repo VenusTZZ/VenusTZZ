@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZeRO-3 冻结权重量化存储 · 原理与工作流程交互演示</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23176B63'/%3E%3Cpath d='M8 17h16M17 10l7 7-7 7' fill='none' stroke='%23F4F5F2' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --paper:#F4F5F2; --paper-2:#EBEFEC; --paper-3:#E2E8E4;
+  --ink:#1B2629; --ink-soft:#405054; --muted:#627275; --line:#D3DAD5;
+  --teal:#176B63; --teal-dark:#0D4943; --teal-soft:#DCE9E5;
+  --brick:#AF462C; --brick-soft:#F3DED6;
+  --amber:#B5802B; --amber-soft:#F3E8D2;
+  --green:#3C7749; --green-soft:#DCEADF;
+  --dark:#1E2A2D; --dark-2:#273539; --code-bg:#E6EBE7;
+  --serif:"Iowan Old Style","Palatino Linotype","Palatino","Book Antiqua",Georgia,"Songti SC",serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","Lucida Grande",sans-serif;
+  --mono:"SF Mono","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;
+  -webkit-font-smoothing:antialiased;}
+.wrap{max-width:1060px;margin:0 auto;padding:0 28px;}
+code,.mono{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.12em .42em;border-radius:4px;color:var(--teal-dark);}
+h1,h2,h3{font-family:var(--serif);font-weight:600;line-height:1.25;}
+h2{font-size:27px;margin:0 0 6px;}
+h3{font-size:19px;margin:24px 0 8px;}
+p{margin:10px 0;}
+a{color:var(--teal);text-decoration:none;border-bottom:1px solid rgba(23,107,99,.35);}
+a:hover{border-bottom-color:var(--teal);}
+.small{font-size:14px;color:var(--muted);}
+
+header.masthead{background:var(--dark);color:#DCE4E1;padding:54px 0 46px;border-bottom:4px solid var(--teal);}
+header.masthead .kicker{font-family:var(--mono);font-size:13px;letter-spacing:.14em;color:#8FB3AC;text-transform:uppercase;margin-bottom:18px;}
+header.masthead h1{color:#F2F5F3;font-size:37px;max-width:780px;margin:0 0 16px;}
+header.masthead p.lead{color:#B9C7C2;max-width:740px;margin:0;}
+.meta-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#334347;margin-top:34px;border:1px solid #334347;}
+.meta-grid .cell{background:var(--dark-2);padding:14px 16px;}
+.meta-grid .k{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;color:#88A29B;text-transform:uppercase;}
+.meta-grid .v{font-size:15px;color:#E7EEEB;margin-top:3px;word-break:break-all;}
+
+section{padding:46px 0 8px;}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:20px;border-bottom:1px solid var(--line);padding-bottom:12px;}
+.sec-no{font-family:var(--mono);font-size:14px;color:var(--teal);}
+.sec-head .sub{color:var(--muted);font-size:14px;margin-left:auto;}
+
+/* 概念卡片 */
+.concept-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+.concept{background:#fff;border:1px solid var(--line);border-radius:7px;padding:18px 20px;}
+.concept h3{margin:0 0 8px;font-size:17px;}
+.concept p{font-size:14px;margin:0;}
+
+/* 通用面板 */
+.panel{background:#fff;border:1px solid var(--line);border-radius:8px;padding:26px;}
+
+/* 模式切换 */
+.mode-switch{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;margin-bottom:20px;}
+.mode-switch button{font-family:var(--sans);font-size:14.5px;padding:10px 20px;border:none;background:#fff;color:var(--muted);cursor:pointer;}
+.mode-switch button.active{background:var(--teal);color:#fff;}
+.mode-switch button:first-child.active{background:var(--brick);}
+
+/* 管线节点条 */
+.pipe-nodes{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:22px;}
+.pipe-node{flex:1;min-width:96px;border:1px solid var(--line);background:var(--paper-2);border-radius:6px;
+  padding:9px 8px;text-align:center;font-size:12.5px;color:var(--muted);cursor:pointer;line-height:1.35;}
+.pipe-node .idx{display:block;font-family:var(--mono);font-size:11px;margin-bottom:3px;}
+.pipe-node.done{background:#fff;color:var(--ink-soft);}
+.pipe-node.current{border-color:var(--teal);background:var(--teal-soft);color:var(--teal-dark);font-weight:600;}
+.mode-buggy .pipe-node.current{border-color:var(--brick);background:var(--brick-soft);color:var(--brick);}
+
+/* 检查器 */
+.inspector{background:var(--paper-2);border:1px solid var(--line);border-radius:7px;padding:18px 20px;}
+.inspector .dtype-tag{font-family:var(--mono);font-size:12px;background:var(--dark-2);color:#B9C7C2;padding:3px 10px;border-radius:4px;}
+.buf-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;margin:14px 0;}
+.buf-cell{background:#fff;border:1px solid var(--line);border-radius:5px;text-align:center;padding:9px 2px;}
+.buf-cell .n{font-family:var(--mono);font-size:15px;display:block;}
+.buf-cell .l{font-size:10.5px;color:var(--muted);}
+.buf-cell.garbage{background:var(--amber-soft);border-color:var(--amber);}
+.buf-cell.zero-cell{background:var(--brick-soft);border-color:var(--brick);}
+.buf-cell.code-cell{background:var(--teal-soft);border-color:var(--teal);}
+.buf-cell.dead{opacity:.55;}
+.scale-line{font-family:var(--mono);font-size:13px;margin:6px 0;}
+.stage-note{margin-top:12px;padding:11px 14px;border-radius:6px;font-size:14px;}
+.stage-note.info{background:var(--teal-soft);color:var(--teal-dark);}
+.stage-note.warn{background:var(--amber-soft);color:#835c1a;}
+.stage-note.bad{background:var(--brick-soft);color:var(--brick);}
+.stage-note.ok{background:var(--green-soft);color:var(--green);}
+
+/* 控制按钮 */
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;}
+button.act{font-family:var(--sans);font-size:14.5px;padding:10px 22px;border-radius:6px;border:1px solid var(--teal);
+  background:var(--teal);color:#fff;cursor:pointer;}
+button.act:hover{background:var(--teal-dark);}
+button.ghost{background:#fff;color:var(--teal);}
+button.ghost:hover{background:var(--teal-soft);}
+button:disabled{opacity:.45;cursor:not-allowed;}
+
+/* bucket 演示 */
+.bucket-strip{display:flex;gap:0;margin:16px 0;border:1px solid var(--line);border-radius:6px;overflow:hidden;}
+.bucket-cell{flex:1;text-align:center;padding:10px 2px;font-family:var(--mono);font-size:13px;border-right:1px solid var(--line);}
+.bucket-cell:last-child{border-right:none;}
+.bucket-cell.s1{background:var(--teal-soft);}
+.bucket-cell.s2{background:var(--green-soft);}
+.bucket-cell.s3{background:var(--amber-soft);}
+.bucket-cell.badseg{background:var(--brick-soft);}
+.bucket-ruler{display:flex;font-family:var(--mono);font-size:11px;color:var(--muted);}
+.bucket-ruler span{flex:1;text-align:center;}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin:10px 0;}
+.legend i{display:inline-block;width:13px;height:13px;border-radius:3px;margin-right:6px;vertical-align:-2px;}
+
+/* 对照表 */
+.cmp-table{width:100%;border-collapse:collapse;table-layout:fixed;}
+.cmp-table th,.cmp-table td{border:1px solid var(--line);padding:11px 13px;font-size:14px;text-align:left;vertical-align:top;}
+.cmp-table th{background:var(--paper-2);font-family:var(--serif);}
+.table-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:7px;background:#fff;}
+.table-scroll .cmp-table{min-width:640px;}
+.sev{font-family:var(--mono);font-size:12px;padding:2px 9px;border-radius:4px;color:#fff;white-space:nowrap;}
+.sev.high{background:var(--brick);}.sev.mid{background:var(--amber);}
+
+.sources{list-style:none;margin:0;padding:0;}
+.sources li{padding:11px 0;border-bottom:1px solid var(--line);font-size:14.5px;}
+.sources li:last-child{border-bottom:none;}
+.sources .src-label{font-family:var(--mono);font-size:12px;color:var(--muted);display:inline-block;min-width:86px;}
+
+footer.foot{margin-top:48px;background:var(--dark);color:#9DB0AA;padding:30px 0;font-size:13.5px;}
+
+@media (max-width:820px){
+  .meta-grid{grid-template-columns:repeat(2,1fr);}
+  .concept-grid{grid-template-columns:1fr;}
+  header.masthead h1{font-size:29px;}
+  .buf-grid{grid-template-columns:repeat(4,1fr);}
+  .sec-head .sub{display:none;}
+}
+@media (max-width:520px){
+  .wrap{padding:0 18px;}
+  .meta-grid{grid-template-columns:1fr;}
+  body{font-size:15px;}
+  .panel{padding:18px;}
+  .pipe-node{min-width:74px;font-size:11.5px;}
+}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="kicker">Interactive Walkthrough · ZeRO-3 Quantized Storage</div>
+    <h1>冻结权重的 int8 之旅：分区、量化与合并桶工作流程</h1>
+    <p class="lead">围绕 Issue #8990 / PR #8995，交互式讲清 <code>zero_quantized_nontrainable_weights</code> 的数据管线：真实权重如何进入分区、量化在何时发生、coalesced 桶如何反量化，以及错误顺序为什么会让冻结权重静默变零。</p>
+    <div class="meta-grid">
+      <div class="cell"><div class="k">仓库</div><div class="v">deepspeedai / DeepSpeed</div></div>
+      <div class="cell"><div class="k">Issue / PR</div><div class="v">#8990 / #8995</div></div>
+      <div class="cell"><div class="k">功能开关</div><div class="v">zero_quantized_nontrainable_weights</div></div>
+      <div class="cell"><div class="k">文档日期</div><div class="v">2026-11-09</div></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- ===== 1 背景与概念 ===== -->
+<section id="background">
+  <div class="sec-head"><span class="sec-no">01</span><h2>背景与概念</h2><span class="sub">Context</span></div>
+  <div class="concept-grid">
+    <div class="concept">
+      <h3>LoRA 微调的显存结构</h3>
+      <p>基座模型全部冻结、只有少量 adapter 训练。冻结参数不产生梯度，却仍占着绝大部分参数显存，是压缩收益最大的一块。</p>
+    </div>
+    <div class="concept">
+      <h3>分组量化（grouped quantization）</h3>
+      <p>把权重切成若干组，每组用自己的 absmax 算一个 scale，编码为 int8；反量化时按组乘回，误差控制在组内 1 个 LSB。</p>
+    </div>
+    <div class="concept">
+      <h3>分区与合并桶</h3>
+      <p>ZeRO-3 把参数切成 N 份分驻各 rank；fetch 时多个参数打包进一个 coalesced 桶，一次 all-gather 取回，再逐参数拆开。</p>
+    </div>
+  </div>
+  <p class="small" style="margin-top:16px;">下面两个交互模块分别演练「单个参数分区的完整生命周期」与「多参数合并桶的反量化过程」，所有数字都由页面内的固定数据实时计算。</p>
+</section>
+
+<!-- ===== 2 分区生命周期分步演练 ===== -->
+<section id="pipeline">
+  <div class="sec-head"><span class="sec-no">02</span><h2>分区生命周期分步演练</h2><span class="sub">Step-through lab</span></div>
+  <div class="panel" id="pipeline-panel">
+    <p style="margin-top:0">一个冻结参数 P，本 rank 的分区含 8 个元素，真实 fp16 权重为一组小值。先选择观察哪条实现，再逐阶段推进，检查器会显示分区在每个时刻的真实内容与 dtype。</p>
+
+    <div class="mode-switch" id="mode-switch">
+      <button type="button" id="mode-buggy" class="active">master · 错误顺序</button>
+      <button type="button" id="mode-fixed">PR #8995 · 修复后</button>
+    </div>
+
+    <div class="pipe-nodes" id="pipe-nodes"></div>
+
+    <div class="inspector">
+      <span class="dtype-tag" id="dtype-tag">storage dtype</span>
+      <div class="scale-line" id="scale-line"></div>
+      <div class="buf-grid" id="buf-grid"></div>
+      <div class="stage-note" id="stage-note"></div>
+    </div>
+
+    <div class="btn-row">
+      <button class="act ghost" type="button" id="btn-prev">上一步</button>
+      <button class="act" type="button" id="btn-next">下一步</button>
+      <button class="act" type="button" id="btn-play">自动播放</button>
+      <button class="act ghost" type="button" id="btn-reset">重置</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 3 合并桶反量化 ===== -->
+<section id="bucket">
+  <div class="sec-head"><span class="sec-no">03</span><h2>Coalesced 合并桶：scale 边界对不对</h2><span class="sub">Bucket lab</span></div>
+  <div class="panel">
+    <p style="margin-top:0">桶里两个量化参数：w1 有 12 个元素、分 2 组（每组 6），w2 有 8 个元素、分 1 组（每组 8）。拼桶后共 20 元素、3 个 scale。切换两种实现，观察 scale 边界落在哪里。</p>
+
+    <div class="mode-switch" id="bucket-switch">
+      <button type="button" id="bucket-flat" class="active">旧 · 扁平统一反量化</button>
+      <button type="button" id="bucket-perparam">新 · 逐参数反量化再重量化</button>
+    </div>
+
+    <div class="legend">
+      <span><i style="background:#176B63"></i>w1 第 1 组 scale</span>
+      <span><i style="background:#3C7749"></i>w1 第 2 组 scale</span>
+      <span><i style="background:#B5802B"></i>w2 的 scale</span>
+      <span><i style="background:#AF462C"></i>错误边界 / 报错区域</span>
+    </div>
+
+    <div class="bucket-ruler" id="bucket-ruler"></div>
+    <div class="bucket-strip" id="bucket-strip"></div>
+
+    <div class="stage-note" id="bucket-note"></div>
+  </div>
+</section>
+
+<!-- ===== 4 缺陷与修复对照 ===== -->
+<section id="defects">
+  <div class="sec-head"><span class="sec-no">04</span><h2>三个缺陷与修复对照</h2><span class="sub">Defect map</span></div>
+  <div class="table-scroll">
+    <table class="cmp-table">
+      <colgroup><col width="10%"><col width="26%"><col width="34%"><col width="30%"></colgroup>
+      <thead><tr><th>严重度</th><th>缺陷</th><th>机制与后果</th><th>PR #8995 修法</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="sev high">高</span></td>
+          <td>先量化空内存、再被拷贝覆盖</td>
+          <td>量化跑在 torch.empty 上，scale 来自垃圾；随后 copy_ 把 fp16 权重隐式转 int8，(-1,1) 内全截断为 0，冻结层静默全零。</td>
+          <td>清零 padding → 拷入真实权重 → 之后才量化，三条分区路径统一</td>
+        </tr>
+        <tr>
+          <td><span class="sev high">高</span></td>
+          <td>单卡 AttributeError</td>
+          <td>no-gather 句柄读类属性 Init.quantizer_module，量化器却只挂在实例上，单卡第一次前向崩溃。</td>
+          <td>量化器挂到 Init 类，作为进程级单例</td>
+        </tr>
+        <tr>
+          <td><span class="sev mid">中</span></td>
+          <td>合并桶错误反量化</td>
+          <td>fp16 权重被 cast 回 int8 存储 dtype，matmul 类型错误；扁平桶按统一 group size 反量化，scale 边界错位。</td>
+          <td>逐参数反量化 → 拼 fp16 → 统一重量化；按 param.dtype 还原</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== 5 验证证据 ===== -->
+<section id="evidence">
+  <div class="sec-head"><span class="sec-no">05</span><h2>验证证据与边界</h2><span class="sub">Evidence</span></div>
+  <div class="concept-grid">
+    <div class="concept">
+      <h3>回归测试钉住问题</h3>
+      <p>新增 test_quantized_nontrainable.py，world size 1 与 2 在 910B4 和 A100 均通过；同一测试在 master 上以「quantized storage is all zeros」失败。</p>
+    </div>
+    <div class="concept">
+      <h3>量化契约与真实模型</h3>
+      <p>量化器 242 个单测全过；Qwen3-0.6B/1.7B/4B LoRA 实测非零率 98.8%、冻结存储字节数减半、loss 正常收敛。</p>
+    </div>
+    <div class="concept">
+      <h3>offload 语义与舍入</h3>
+      <p>CPU 参数 offload 初始化直接拒绝，NVMe 跳过量化并警告；NPU 量化器补齐 int4/非对称，截断改 half-to-even 对齐 CUDA。</p>
+    </div>
+  </div>
+  <p class="small" style="margin-top:14px;">未覆盖：bf16 存储、NVMe 路径、跨节点互联与 checkpoint 全量往返，PR 中已显式标注；PR 当前为 draft、未合并，无 API/配置/checkpoint 格式变更。</p>
+</section>
+
+<!-- ===== 6 来源 ===== -->
+<section id="sources">
+  <div class="sec-head"><span class="sec-no">06</span><h2>来源</h2><span class="sub">Sources</span></div>
+  <ul class="sources">
+    <li><span class="src-label">Issue</span><a href="https://github.com/deepspeedai/DeepSpeed/issues/8990" target="_blank" rel="noopener">#8990 · zero_quantized_nontrainable_weights corrupts frozen weights</a></li>
+    <li><span class="src-label">Pull Request</span><a href="https://github.com/deepspeedai/DeepSpeed/pull/8995" target="_blank" rel="noopener">#8995 · Fix quantized storage of nontrainable weights in ZeRO-3</a></li>
+    <li><span class="src-label">核查文件</span><span class="small">partition_parameters.py、op_builder/npu/quantizer.py（PR head 206af23）</span></li>
+  </ul>
+</section>
+
+<script>
+(function () {
+  "use strict";
+
+  /* 固定输入：本 rank 分区的 8 个 fp16 权重 */
+  var W = [0.012, -0.035, 0.028, 0.004, -0.021, 0.031, -0.009, 0.017];
+  var GARBAGE = [17, -42, 99, -15, 73, -8, 36, -54];
+  var NAMES = ["P[0]", "P[1]", "P[2]", "P[3]", "P[4]", "P[5]", "P[6]", "P[7]"];
+
+  function quantize(w, bits) {
+    var absmax = 0, i;
+    for (i = 0; i < w.length; i++) absmax = Math.max(absmax, Math.abs(w[i]));
+    var scale = Math.pow(2, bits) / (2 * absmax);
+    var qmin = -(1 << (bits - 1)), qmax = (1 << (bits - 1)) - 1;
+    var codes = w.map(function (x) {
+      var q = Math.round(x * scale);
+      return Math.max(qmin, Math.min(qmax, q));
+    });
+    return { scale: scale, codes: codes };
+  }
+  function fmt(x) { return Math.abs(x) < 0.1 ? x.toFixed(4) : x.toFixed(3); }
+  function cellsFrom(vals, cls) {
+    return vals.map(function (v) { return { v: v, cls: cls || "" }; });
+  }
+
+  var q = quantize(W, 8);
+  var deq = q.codes.map(function (c) { return c / q.scale; });
+
+  /* 修复后阶段 */
+  var FIXED = [
+    { label: "分区初始化", dtype: "int8", cells: cellsFrom(["—", "—", "—", "—", "—", "—", "—", "—"], "dead"),
+      scale: "", note: "torch.empty 只分配一块未初始化的 int8 缓冲区，内容此刻不可读。", noteCls: "info" },
+    { label: "清零 padding", dtype: "int8", cells: cellsFrom(["0", "0", "0", "0", "0", "0", "0", "0"], ""),
+      scale: "", note: "zero_() 先清掉未覆盖的 padding，保证未初始化内存不会混进后面的量化。", noteCls: "info" },
+    { label: "拷入真实权重", dtype: "fp16", cells: cellsFrom(W.map(fmt), ""),
+      scale: "", note: "copy_ 把真实权重写进 fp16 缓冲区；存储此刻仍是浮点，尚未量化。", noteCls: "info" },
+    { label: "分组量化", dtype: "int8", cells: cellsFrom(q.codes, "code-cell"),
+      scale: "ds_quant_scale = " + fmt(q.scale) + "（每组一个 scale）",
+      note: "量化发生在真实权重就位之后，scale 与权重对应，编码落在 [-128, 127]。", noteCls: "info" },
+    { label: "存储驻留", dtype: "int8", cells: cellsFrom(q.codes, "code-cell"),
+      scale: "ds_quant_scale = " + fmt(q.scale),
+      note: "ds_tensor 以 int8 驻留，scale 挂在 ds_quant_scale，等待 fetch。", noteCls: "info" },
+    { label: "fetch 反量化", dtype: "fp16", cells: cellsFrom(deq.map(fmt), ""),
+      scale: "反量化：code / scale",
+      note: "coalesced 桶取回后按本参数自己的 scale 反量化，还原到 param.dtype（fp16），而非 int8 存储 dtype。", noteCls: "info" },
+    { label: "前向输出", dtype: "fp16", cells: cellsFrom(deq.map(fmt), ""),
+      scale: "", note: "反量化结果与原始权重的差异在组内 1 LSB 以内，前向与参考实现一致。", noteCls: "ok" }
+  ];
+
+  /* master 错误阶段 */
+  var BUGGY = [
+    { label: "分区初始化", dtype: "int8", cells: cellsFrom(["—", "—", "—", "—", "—", "—", "—", "—"], "dead"),
+      scale: "", note: "同样从一块未初始化的 int8 缓冲区开始。", noteCls: "info" },
+    { label: "量化空内存", dtype: "int8", cells: cellsFrom(GARBAGE, "garbage"),
+      scale: "ds_quant_scale = 1.0（来自垃圾内存，无效）",
+      note: "量化跑在未初始化数据上，scale 与真实权重无关，结果稍后还会被直接丢弃。", noteCls: "warn" },
+    { label: "copy_ 覆盖", dtype: "int8", cells: cellsFrom(["0", "0", "0", "0", "0", "0", "0", "0"], "zero-cell"),
+      scale: "", note: "fp16 权重被隐式 cast 进 int8 存储，绝对值小于 1 的值全部截断为 0，同时覆盖掉上一步的量化结果。", noteCls: "bad" },
+    { label: "存储最终状态", dtype: "int8", cells: cellsFrom(["0", "0", "0", "0", "0", "0", "0", "0"], "zero-cell"),
+      scale: "", note: "存储保持 int8 形态但内容全零，没有任何异常被抛出。", noteCls: "bad" },
+    { label: "fetch 反量化", dtype: "int8", cells: cellsFrom(["0", "0", "0", "0", "0", "0", "0", "0"], "zero-cell"),
+      scale: "", note: "零的反量化结果仍然是零；错误路径还会把 fp16 权重误 cast 回 int8，matmul 直接类型报错。", noteCls: "bad" },
+    { label: "前向输出", dtype: "int8", cells: cellsFrom(["0", "0", "0", "0", "0", "0", "0", "0"], "zero-cell"),
+      scale: "", note: "冻结层输出 0、loss 停在 mean(label²)、梯度为零——典型的静默错误。", noteCls: "bad" }
+  ];
+
+  var panel = document.getElementById("pipeline-panel");
+  var nodesEl = document.getElementById("pipe-nodes");
+  var gridEl = document.getElementById("buf-grid");
+  var dtypeEl = document.getElementById("dtype-tag");
+  var scaleEl = document.getElementById("scale-line");
+  var noteEl = document.getElementById("stage-note");
+  var btnPrev = document.getElementById("btn-prev");
+  var btnNext = document.getElementById("btn-next");
+  var btnPlay = document.getElementById("btn-play");
+  var btnBuggy = document.getElementById("mode-buggy");
+  var btnFixed = document.getElementById("mode-fixed");
+
+  var mode = "buggy", stage = 0, timer = null;
+
+  function stages() { return mode === "buggy" ? BUGGY : FIXED; }
+
+  function renderNodes() {
+    var s = stages(), html = "";
+    s.forEach(function (st, i) {
+      var cls = "pipe-node" + (i === stage ? " current" : (i < stage ? " done" : ""));
+      html += '<button type="button" class="' + cls + '" data-i="' + i + '"><span class="idx">' + i + "</span>" + st.label + "</button>";
+    });
+    nodesEl.innerHTML = html;
+    Array.prototype.forEach.call(nodesEl.querySelectorAll(".pipe-node"), function (b) {
+      b.addEventListener("click", function () {
+        stopPlay(); stage = Number(b.getAttribute("data-i")); render();
+      });
+    });
+  }
+
+  function render() {
+    var s = stages()[stage];
+    panel.className = mode === "buggy" ? "panel mode-buggy" : "panel";
+    dtypeEl.textContent = "storage dtype · " + s.dtype;
+    scaleEl.textContent = s.scale;
+    scaleEl.style.display = s.scale ? "block" : "none";
+    gridEl.innerHTML = s.cells.map(function (c, i) {
+      return '<div class="buf-cell ' + c.cls + '"><span class="n">' + c.v + "</span>" +
+        '<span class="l">' + NAMES[i] + "</span></div>";
+    }).join("");
+    noteEl.className = "stage-note " + s.noteCls;
+    noteEl.textContent = s.note;
+    renderNodes();
+    btnPrev.disabled = stage === 0;
+    btnNext.disabled = stage === stages().length - 1;
+  }
+
+  function stopPlay() {
+    if (timer) { clearInterval(timer); timer = null; btnPlay.textContent = "自动播放"; }
+  }
+
+  btnPrev.addEventListener("click", function () { stopPlay(); if (stage > 0) { stage--; render(); } });
+  btnNext.addEventListener("click", function () { stopPlay(); if (stage < stages().length - 1) { stage++; render(); } });
+  btnPlay.addEventListener("click", function () {
+    if (timer) { stopPlay(); return; }
+    if (stage === stages().length - 1) { stage = 0; }
+    btnPlay.textContent = "暂停";
+    timer = setInterval(function () {
+      stage++;
+      if (stage >= stages().length) { stopPlay(); stage = stages().length - 1; }
+      render();
+    }, 950);
+  });
+  btnBuggy.addEventListener("click", function () {
+    stopPlay(); mode = "buggy"; stage = 0;
+    btnBuggy.classList.add("active"); btnFixed.classList.remove("active"); render();
+  });
+  btnFixed.addEventListener("click", function () {
+    stopPlay(); mode = "fixed"; stage = 0;
+    btnFixed.classList.add("active"); btnBuggy.classList.remove("active"); render();
+  });
+  document.getElementById("btn-reset").addEventListener("click", function () {
+    stopPlay(); stage = 0; render();
+  });
+
+  render();
+})();
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  var TOTAL = 20, GROUPS = 3;
+  var stripEl = document.getElementById("bucket-strip");
+  var rulerEl = document.getElementById("bucket-ruler");
+  var noteEl = document.getElementById("bucket-note");
+  var btnFlat = document.getElementById("bucket-flat");
+  var btnPer = document.getElementById("bucket-perparam");
+
+  /* 正确的逐参数分段：w1 两组（0-5、6-11），w2 一组（12-19） */
+  function correctClass(i) {
+    if (i < 6) return "s1";
+    if (i < 12) return "s2";
+    return "s3";
+  }
+
+  /* 扁平路径：group size = floor(20/3)=6，边界落在 6、12、18，尾部 18-19 成为错误段 */
+  function flatClass(i) {
+    if (i < 6) return "s1";
+    if (i < 12) return "s2";
+    if (i < 18) return "s3";
+    return "badseg";
+  }
+
+  function render(flat) {
+    var ruler = "", strip = "";
+    for (var i = 0; i < TOTAL; i++) {
+      ruler += "<span>" + i + "</span>";
+      var cls = flat ? flatClass(i) : correctClass(i);
+      strip += '<div class="bucket-cell ' + cls + '">' + i + "</div>";
+    }
+    rulerEl.innerHTML = ruler;
+    stripEl.innerHTML = strip;
+
+    if (flat) {
+      var step = Math.floor(TOTAL / GROUPS), rem = TOTAL % GROUPS;
+      noteEl.className = "stage-note bad";
+      noteEl.innerHTML = "统一 group size = floor(20 / 3) = " + step + "，边界落在 6、12、18，" +
+        "w2 的 scale 被错误地套到 12-17，尾部 18-19 无有效 scale（红色段）。" +
+        "CUDA 上是静默数值偏差；NPU 直接触发整除断言：20 % 3 = " + rem + "，抛出 numel must be divisible by groups。" +
+        "另外 wait() 把 fp16 权重 cast 回 int8 存储 dtype，后续 matmul 类型不匹配。";
+    } else {
+      noteEl.className = "stage-note ok";
+      noteEl.innerHTML = "每个参数先用自己的 scale 独立反量化，拼成 fp16 桶后再统一重新量化，" +
+        "w1 的内部边界（6）与 w2 的边界（12）都保持在正确位置；padding 已先清零，未初始化值不会污染共享 scale。" +
+        "wait() 按 param.dtype（fp16）还原，matmul 正常。";
+    }
+  }
+
+  btnFlat.addEventListener("click", function () {
+    btnFlat.classList.add("active"); btnPer.classList.remove("active"); render(true);
+  });
+  btnPer.addEventListener("click", function () {
+    btnPer.classList.add("active"); btnFlat.classList.remove("active"); render(false);
+  });
+
+  render(true);
+})();
+</script>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p>本页面为单文件自包含演示，无外部数据依赖；数值模型为简化的 8 元素分区与 20 元素合并桶，用于说明机制而非性能基准。</p>
+  </div>
+</footer>
+
+</body>
+</html>

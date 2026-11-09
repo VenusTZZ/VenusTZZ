@@ -1,6 +1,55 @@
-/* ---------------------------------------------------------------------------
- * PR 学习笔记索引页（layout: false）
- * ------------------------------------------------------------------------ */
+<script setup>
+import notes from 'virtual:notes'
+</script>
+
+<template>
+  <div class="notes-page">
+    <header class="notes-top">
+      <a class="notes-brand" href="../"><span class="notes-dot" aria-hidden="true"></span>Venus</a>
+      <a class="notes-back" href="../">← 返回首页</a>
+    </header>
+
+    <main class="notes-main">
+      <p class="notes-eyebrow">DeepSpeed · Ascend NPU</p>
+      <h1>PR 学习笔记</h1>
+      <p class="notes-intro">
+        把合并进 DeepSpeed 的 PR 拆成了可以点的交互页。每页的结论与数据都来自 PR / issue 原文，
+        能算的地方尽量在浏览器里实时算。
+      </p>
+
+      <div v-if="notes.length" class="notes-grid">
+        <a
+          v-for="note in notes"
+          :key="note.slug"
+          class="note-card"
+          :style="{ '--note-accent': note.accent }"
+          :href="note.href"
+          target="_blank"
+          rel="noopener"
+        >
+          <div class="note-meta">
+            <span class="note-pr">{{ note.prLabel }}</span>
+            <span v-if="note.series">{{ note.series }}</span>
+          </div>
+          <h2>{{ note.title }}</h2>
+          <p v-if="note.description">{{ note.description }}</p>
+          <div v-if="note.tags.length" class="note-tags">
+            <span v-for="tag in note.tags" :key="tag">{{ tag }}</span>
+          </div>
+          <span class="note-open">打开交互页 <span aria-hidden="true">↗</span></span>
+        </a>
+      </div>
+
+      <p v-else class="notes-empty">
+        还没有笔记。把 HTML 放进 <code>docs/public/notes/</code>，重新构建即可自动收录。
+      </p>
+
+      <p class="notes-foot">交互页是独立的静态文档，会在新标签页打开；关掉标签页即可回到这里。</p>
+    </main>
+  </div>
+</template>
+
+<style scoped>
 .notes-page {
   min-height: 100vh;
   padding: 0 24px 80px;
@@ -192,6 +241,21 @@
   gap: 10px;
 }
 
+.notes-empty {
+  margin: 52px 0 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--vp-c-text-2);
+}
+
+.notes-empty code {
+  padding: 1px 6px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 4px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
 .notes-foot {
   margin: 36px 0 0;
   font-size: 12.5px;
@@ -227,3 +291,4 @@
     transform: none;
   }
 }
+</style>
