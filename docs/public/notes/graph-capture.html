@@ -9,6 +9,9 @@
 <meta name="note:accent" content="#b494ff">
 <meta name="note:tags" content="Graph capture|issue #8932|+178 / −66|已合入">
 <meta name="note:description" content="HybridEngine 把上千次 kernel launch 压成一次 replay，但两条快路径被硬编码成 CUDA 专属。这页拆解问题根因、捕获工作流，以及让昇腾 NPU 真正跑通的两个关键修复。">
+<meta name="note:title:en" content="Turning graph capture from CUDA-only into a generic accelerator capability">
+<meta name="note:tags:en" content="Graph capture|issue #8932|+178 / −66|merged">
+<meta name="note:description:en" content="HybridEngine compresses thousands of kernel launches into a single replay, but two fast paths were hardcoded for CUDA. This page breaks down the root cause, the capture workflow, and the two key fixes that make it work on Ascend NPU.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23E08A3C'/%3E%3Cpath d='M7 16V8h2v8H7zm4 0V8h2v8h-2zm4-5v5h-2v-5h2z' fill='%230E141B'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://miaoda.feishu.cn">
 <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">

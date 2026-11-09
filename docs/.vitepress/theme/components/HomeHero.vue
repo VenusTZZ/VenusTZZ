@@ -1,29 +1,16 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { withBase } from 'vitepress'
 import BackGround from './BackGround.vue'
+import { useLang } from '../composables/useLang.js'
 
 const copy = {
   zh: { text: 'Hi 🖐️', tagline: '在代码里种点东西', notes: 'PR 笔记' },
   en: { text: 'Hi 🖐️', tagline: 'Planting seeds in code', notes: 'PR Notes' },
 }
 
-const lang = ref('en')
+const { lang, toggleLang } = useLang()
 const t = computed(() => copy[lang.value])
-
-onMounted(() => {
-  lang.value = localStorage.getItem('lang') === 'zh' ? 'zh' : 'en'
-  document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
-})
-
-watch(lang, (val) => {
-  document.documentElement.lang = val === 'zh' ? 'zh-CN' : 'en'
-  localStorage.setItem('lang', val)
-})
-
-function toggleLang() {
-  lang.value = lang.value === 'zh' ? 'en' : 'zh'
-}
 </script>
 
 <template>

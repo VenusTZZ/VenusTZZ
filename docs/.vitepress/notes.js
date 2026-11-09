@@ -12,6 +12,13 @@
  *   <meta name="note:tags"        content="int8|int4|0 新增失败">  (用 | 或 , 分隔)
  *   <meta name="note:accent"      content="#4fd1a5">
  *
+ * 英文版可选，缺失时回退到中文：
+ *
+ *   <meta name="note:title:en"       content="English title">
+ *   <meta name="note:description:en" content="English summary">
+ *   <meta name="note:series:en"      content="DeepSpeed · Triton">
+ *   <meta name="note:tags:en"        content="3 gate layers|591 tests">
+ *
  * 页面按 PR 号从大到小排序；没有 PR 号的排在后面，按标题排序。
  */
 import fs from 'node:fs'
@@ -96,6 +103,17 @@ function truncate(text, max = 180) {
   return chars.length > max ? chars.slice(0, max).join('') + '…' : text
 }
 
+function truncateWords(text, max = 400) {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut) + '…'
+}
+
+function splitTags(raw) {
+  return raw ? raw.split(/[|,，]/).map((tag) => tag.trim()).filter(Boolean) : []
+}
+
 function hashAccent(name) {
   let hash = 0
   for (const char of name) hash = (hash * 31 + char.codePointAt(0)) >>> 0
@@ -120,9 +138,10 @@ function parseNote(file, html) {
   const pr = (prMeta.match(/\d+/) || [])[0] || findPr(html, title)
 
   const tagsRaw = readMeta(html, 'note:tags') || readMeta(html, 'keywords')
-  const tags = tagsRaw
-    ? tagsRaw.split(/[|,，]/).map((tag) => tag.trim()).filter(Boolean)
-    : []
+  const tags = splitTags(tagsRaw)
+
+  const tagsEnRaw = readMeta(html, 'note:tags:en')
+  const tagsEn = splitTags(tagsEnRaw)
 
   const accentMeta = readMeta(html, 'note:accent')
   const accent = /^#[0-9a-f]{3,8}$/i.test(accentMeta) ? accentMeta : hashAccent(file)
@@ -132,11 +151,15 @@ function parseNote(file, html) {
     file,
     href: './' + encodeURIComponent(file),
     title,
+    titleEn: readMeta(html, 'note:title:en'),
     description: truncate(description),
+    descriptionEn: truncateWords(readMeta(html, 'note:description:en'), 400),
     pr,
     prLabel: pr ? `#${pr}` : 'NOTE',
     series: readMeta(html, 'note:series') || (/deepspeed/i.test(html) ? 'DeepSpeed' : ''),
+    seriesEn: readMeta(html, 'note:series:en'),
     tags,
+    tagsEn,
     accent,
   }
 }

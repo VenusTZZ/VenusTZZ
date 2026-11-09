@@ -9,6 +9,10 @@
 <meta name="note:accent" content="#7fb3ff">
 <meta name="note:tags" content="7 处缺陷|32/32 tokens|2.4× decode|GQA">
 <meta name="note:description" content="两个静默正确性 bug 叠加一个 O(n²) 的缓存重建性能问题。修复后 Qwen3-4B 上 32 个生成 token 与 Hugging Face 参考完全一致，32k 上下文端到端 decode 提速 2.4×。">
+<meta name="note:title:en" content="Fixing RoPE and KV cache on the Ascend NPU inference path">
+<meta name="note:series:en" content="DeepSpeed · NPU inference">
+<meta name="note:tags:en" content="7 fixes|32/32 tokens|2.4× decode|GQA">
+<meta name="note:description:en" content="Two silent correctness bugs plus an O(n²) cache-rebuild performance problem. After the fix, 32 generated tokens from Qwen3-4B match the Hugging Face reference exactly, and end-to-end decode at 32k context is 2.4× faster.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E141B'/%3E%3Cpath d='M9 22V10l7 7 7-7v12' stroke='%233FB6E8' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://miaoda.feishu.cn/fonts">
 <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">

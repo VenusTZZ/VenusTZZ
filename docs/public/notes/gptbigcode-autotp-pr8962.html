@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PR #8962 · AutoTP 多查询 GPTBigCode 修复原理</title>
+<meta name="note:title:en" content="Fixing empty shards and non-contiguous gradients in multi-query GPTBigCode when TP &gt; 1">
+<meta name="note:description:en" content="One PR fixes two orthogonal defects: a sharding mismatch (transformers 5.x exposing num_key_value_heads=1, leaving some ranks with empty attention) and HCCL rejecting non-contiguous transposed gradients from torch_npu. Toggle the controls to see each rank's actual tensor shapes before and after the fix.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e141b'/%3E%3Crect x='6' y='6' width='20' height='7' rx='1.5' fill='%234ea8de'/%3E%3Crect x='6' y='15' width='20' height='11' rx='1.5' fill='%23e8a34d'/%3E%3C/svg%3E">
 <style>
 /* ============ 设计 token：分布式系统观测台 ============ */

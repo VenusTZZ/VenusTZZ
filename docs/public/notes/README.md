@@ -15,6 +15,15 @@
 | `note:tags` | 标签，用竖线或逗号分隔 |
 | `note:accent` | 卡片强调色，形如 `#4fd1a5`；缺省按文件名稳定取色 |
 
+英文版是可选的，缺失时回退到中文：
+
+| meta | 说明 |
+| --- | --- |
+| `note:title:en` | 英文卡片标题 |
+| `note:description:en` | 英文摘要 |
+| `note:series:en` | 英文来源标签 |
+| `note:tags:en` | 英文标签，用竖线或逗号分隔 |
+
 示例：
 
 ```html
@@ -23,7 +32,14 @@
 <meta name="note:accent" content="#4fd1a5">
 <meta name="note:tags" content="hpZ int8|qgZ int4|payload −50%">
 <meta name="note:description" content="一两句话的摘要。">
+<meta name="note:title:en" content="English card title">
+<meta name="note:description:en" content="One or two sentences in English.">
 ```
+
+## 中英文切换
+
+`/notes/` 右上角的按钮在中文 / English 之间切换，选择存在 `localStorage.lang`，和首页共用。
+交互页正文目前仍是中文；英文 meta 只影响索引卡片。
 
 ## 排序与命名
 

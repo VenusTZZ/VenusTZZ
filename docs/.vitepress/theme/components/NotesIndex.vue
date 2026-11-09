@@ -1,21 +1,90 @@
 <script setup>
+import { computed, onMounted, watch } from 'vue'
+import { useData } from 'vitepress'
 import notes from 'virtual:notes'
+import { useLang } from '../composables/useLang.js'
+
+const copy = {
+  zh: {
+    eyebrow: 'DeepSpeed · Ascend NPU',
+    title: 'PR 学习笔记',
+    intro:
+      '把合并进 DeepSpeed 的 PR 拆成了可以点的交互页。每页的结论与数据都来自 PR / issue 原文，能算的地方尽量在浏览器里实时算。',
+    back: '← 返回首页',
+    open: '打开交互页',
+    emptyPrefix: '还没有笔记。把 HTML 放进 ',
+    emptySuffix: '，重新构建即可自动收录。',
+    foot: '交互页是独立的静态文档，会在新标签页打开；关掉标签页即可回到这里。',
+    switchLabel: 'EN',
+    switchAria: 'Switch to English',
+  },
+  en: {
+    eyebrow: 'DeepSpeed · Ascend NPU',
+    title: 'PR Study Notes',
+    intro:
+      'Interactive breakdowns of DeepSpeed PRs. Every claim and number comes from the PR / issue itself; wherever possible, the math runs live in your browser.',
+    back: '← Home',
+    open: 'Open page',
+    emptyPrefix: 'No notes yet. Drop HTML files into ',
+    emptySuffix: ' and they will be picked up on the next build.',
+    foot: 'Each explainer is a standalone static document that opens in a new tab; close it to return here.',
+    switchLabel: '中文',
+    switchAria: '切换到中文',
+  },
+}
+
+const { lang, toggleLang } = useLang()
+const { site } = useData()
+
+const t = computed(() => copy[lang.value])
+const isEn = computed(() => lang.value === 'en')
+
+function noteTitle(note) {
+  return isEn.value && note.titleEn ? note.titleEn : note.title
+}
+
+function noteDescription(note) {
+  return isEn.value && note.descriptionEn ? note.descriptionEn : note.description
+}
+
+function noteSeries(note) {
+  return isEn.value && note.seriesEn ? note.seriesEn : note.series
+}
+
+function noteTags(note) {
+  return isEn.value && note.tagsEn.length ? note.tagsEn : note.tags
+}
+
+const docTitle = computed(() => `${t.value.title} | ${site.value.title}`)
+
+onMounted(() => {
+  document.title = docTitle.value
+})
+
+watch(docTitle, (title) => {
+  document.title = title
+})
 </script>
 
 <template>
   <div class="notes-page">
     <header class="notes-top">
       <a class="notes-brand" href="../"><span class="notes-dot" aria-hidden="true"></span>Venus</a>
-      <a class="notes-back" href="../">← 返回首页</a>
+      <div class="notes-tools">
+        <button
+          type="button"
+          class="notes-lang"
+          :aria-label="t.switchAria"
+          @click="toggleLang"
+        >{{ t.switchLabel }}</button>
+        <a class="notes-back" href="../">{{ t.back }}</a>
+      </div>
     </header>
 
     <main class="notes-main">
-      <p class="notes-eyebrow">DeepSpeed · Ascend NPU</p>
-      <h1>PR 学习笔记</h1>
-      <p class="notes-intro">
-        把合并进 DeepSpeed 的 PR 拆成了可以点的交互页。每页的结论与数据都来自 PR / issue 原文，
-        能算的地方尽量在浏览器里实时算。
-      </p>
+      <p class="notes-eyebrow">{{ t.eyebrow }}</p>
+      <h1>{{ t.title }}</h1>
+      <p class="notes-intro">{{ t.intro }}</p>
 
       <div v-if="notes.length" class="notes-grid">
         <a
@@ -29,22 +98,23 @@ import notes from 'virtual:notes'
         >
           <div class="note-meta">
             <span class="note-pr">{{ note.prLabel }}</span>
-            <span v-if="note.series">{{ note.series }}</span>
+            <span v-if="noteSeries(note)">{{ noteSeries(note) }}</span>
           </div>
-          <h2>{{ note.title }}</h2>
-          <p v-if="note.description">{{ note.description }}</p>
-          <div v-if="note.tags.length" class="note-tags">
-            <span v-for="tag in note.tags" :key="tag">{{ tag }}</span>
+          <h2 :lang="isEn && note.titleEn ? 'en' : 'zh-CN'">{{ noteTitle(note) }}</h2>
+          <p
+            v-if="noteDescription(note)"
+            :lang="isEn && note.descriptionEn ? 'en' : 'zh-CN'"
+          >{{ noteDescription(note) }}</p>
+          <div v-if="noteTags(note).length" class="note-tags">
+            <span v-for="tag in noteTags(note)" :key="tag">{{ tag }}</span>
           </div>
-          <span class="note-open">打开交互页 <span aria-hidden="true">↗</span></span>
+          <span class="note-open">{{ t.open }} <span aria-hidden="true">↗</span></span>
         </a>
       </div>
 
-      <p v-else class="notes-empty">
-        还没有笔记。把 HTML 放进 <code>docs/public/notes/</code>，重新构建即可自动收录。
-      </p>
+      <p v-else class="notes-empty">{{ t.emptyPrefix }}<code>docs/public/notes/</code>{{ t.emptySuffix }}</p>
 
-      <p class="notes-foot">交互页是独立的静态文档，会在新标签页打开；关掉标签页即可回到这里。</p>
+      <p class="notes-foot">{{ t.foot }}</p>
     </main>
   </div>
 </template>
@@ -97,6 +167,36 @@ import notes from 'virtual:notes'
 
 .notes-back:hover {
   color: var(--vp-c-brand-light);
+}
+
+.notes-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.notes-lang {
+  padding: 0 12px;
+  line-height: 28px;
+  border: 1px solid rgba(192, 235, 215, 0.45);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vp-c-brand-light);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.25s, background-color 0.25s, color 0.25s;
+}
+
+.notes-lang:hover {
+  border-color: var(--vp-c-brand-light);
+  background: rgba(192, 235, 215, 0.08);
+  color: #eafff4;
+}
+
+.notes-lang:focus-visible {
+  outline: 2px solid var(--vp-c-brand);
+  outline-offset: 2px;
 }
 
 .notes-main {
@@ -265,6 +365,10 @@ import notes from 'virtual:notes'
 @media (max-width: 760px) {
   .notes-page {
     padding-bottom: 56px;
+  }
+
+  .notes-tools {
+    gap: 10px;
   }
 
   .notes-main {

@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NPU Graph 操作原理交互演示 · DeepSpeed PR #8605</title>
+<meta name="note:title:en" content="Implementing graph ops for NPU: fixing silent graph_harvesting failures">
+<meta name="note:description:en" content="Gradient norm, gradient clipping, the BF16 optimizer's hp→lp write-back — on NPU this chain of short kernels was silently skipped by empty graph replays. No error, but the training numerics were already corrupted. This page interactively demonstrates the mechanism and the fix.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23171a1f'/%3E%3Cpath d='M8 22V10h3l5 7 5-7h3v12h-3v-7l-5 7-5-7v7z' fill='%23E5484D'/%3E%3C/svg%3E">
 <script src="https://fastly.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <style>
