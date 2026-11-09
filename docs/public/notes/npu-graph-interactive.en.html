@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NPU Graph Operations Interactive Demo · DeepSpeed PR #8605</title>
+<meta name="note:title:en" content="Implementing graph ops for NPU: fixing silent graph_harvesting failures">
+<meta name="note:description:en" content="Gradient norm, gradient clipping, the BF16 optimizer's hp→lp write-back — on NPU this chain of short kernels was silently skipped by empty graph replays. No error, but the training numerics were already corrupted. This page interactively demonstrates the mechanism and the fix.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23171a1f'/%3E%3Cpath d='M8 22V10h3l5 7 5-7h3v12h-3v-7l-5 7-5-7v7z' fill='%23E5484D'/%3E%3C/svg%3E">
+<script src="https://fastly.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+:root{
+  --bg:#121417; --panel:#181b20; --panel2:#1f232a; --line:#2b3038;
+  --txt:#e7e5df; --sub:#9aa1ab; --faint:#6b7280;
+  --red:#e5484d; --red-dim:#3a2022; --teal:#2fb8a6; --teal-dim:#16302d;
+  --amber:#e2a03f; --amber-dim:#352a17; --blue:#5b9dd9;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+section{padding:64px 0;border-top:1px solid var(--line)}
+h1{font-size:clamp(28px,5vw,44px);line-height:1.2;font-weight:750;letter-spacing:-.5px}
+h2{font-size:24px;font-weight:700;letter-spacing:-.3px;margin-bottom:8px}
+h3{font-size:16px;font-weight:650;margin-bottom:10px}
+p{color:var(--sub)}
+code,.mono{font-family:var(--mono)}
+.kicker{font-family:var(--mono);font-size:12.5px;color:var(--red);letter-spacing:1px;margin-bottom:14px}
+.lead{font-size:17px;color:var(--sub);max-width:680px}
+
+/* hero */
+.hero{padding:88px 0 72px;border-top:none;position:relative;overflow:hidden}
+.hero-grid{position:absolute;inset:0;opacity:.35;pointer-events:none;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:44px 44px;mask-image:radial-gradient(ellipse 70% 60% at 30% 0%,#000 30%,transparent 75%)}
+.hero-meta{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 26px}
+.tag{font-family:var(--mono);font-size:12.5px;padding:5px 11px;border:1px solid var(--line);border-radius:20px;color:var(--sub);background:var(--panel)}
+.tag.hot{color:var(--teal);border-color:#24504a}
+.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:40px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.stat b{display:block;font-size:26px;font-family:var(--mono);font-weight:700;letter-spacing:-1px}
+.stat span{font-size:13px;color:var(--sub)}
+.stat b.r{color:var(--red)} .stat b.t{color:var(--teal)}
+
+/* generic cards */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.muted{color:var(--faint);font-size:13px}
+
+/* buttons */
+.btn{font-family:var(--mono);font-size:13px;padding:9px 18px;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--txt);cursor:pointer;transition:border-color .15s,background .15s;min-height:40px}
+.btn:hover{border-color:var(--faint)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--red);border-color:var(--red);color:#fff}
+.btn.primary:hover{background:#ef5b60}
+.btn.teal{background:var(--teal);border-color:var(--teal);color:#0c1a18}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{font-family:var(--mono);font-size:13px;padding:10px 20px;background:var(--panel);color:var(--sub);border:0;cursor:pointer;min-height:42px}
+.seg button.on.stub{background:var(--red-dim);color:#ff9ba0}
+.seg button.on.fixed{background:var(--teal-dim);color:#7fe0d1}
+
+/* launch animation */
+.lane{margin:18px 0}
+.lane-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-family:var(--mono);font-size:13px}
+.blocks{display:flex;gap:4px;flex-wrap:wrap}
+.blk{width:26px;height:26px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);transition:background .12s,border-color .12s}
+.blk.lit-e{background:var(--amber);border-color:var(--amber)}
+.blk.lit-g{background:var(--teal);border-color:var(--teal)}
+.timeline-bar{height:8px;border-radius:4px;background:var(--panel2);margin-top:10px;position:relative;overflow:hidden}
+.timeline-fill{height:100%;border-radius:4px;width:0}
+.timeline-fill.e{background:var(--amber)} .timeline-fill.g{background:var(--teal)}
+.lane-note{font-size:13px;color:var(--sub);margin-top:8px}
+
+/* simulator */
+.sim{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px}
+.sim-top{display:flex;justify-content:space-between;flex-wrap:wrap;gap:14px;align-items:center;margin-bottom:20px}
+.sim-controls{display:flex;gap:10px;flex-wrap:wrap}
+.step-strip{display:flex;gap:8px;margin:18px 0 22px;flex-wrap:wrap}
+.step-dot{font-family:var(--mono);font-size:12.5px;width:46px;height:46px;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--faint)}
+.step-dot.done{color:var(--txt);border-color:var(--faint)}
+.step-dot.cur{border-color:var(--teal);color:var(--teal);box-shadow:0 0 0 1px var(--teal)}
+.step-dot.cur.bad{border-color:var(--red);color:var(--red);box-shadow:0 0 0 1px var(--red)}
+.task-row{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:14px}
+.task{border:1px solid var(--line);border-radius:10px;padding:16px;background:var(--panel2)}
+.task .tname{font-size:13.5px;font-weight:600;margin-bottom:6px}
+.task .tval{font-family:var(--mono);font-size:22px;margin:8px 0 4px}
+.task .tstate{font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:12px;display:inline-block}
+.state-ok{background:var(--teal-dim);color:#7fe0d1}
+.state-bad{background:var(--red-dim);color:#ff9ba0}
+.state-idle{background:var(--panel);color:var(--faint)}
+.sim-banner{margin-top:18px;border-radius:10px;padding:13px 16px;font-family:var(--mono);font-size:13px;display:none}
+.sim-banner.show{display:block}
+.sim-banner.bad{background:var(--red-dim);color:#ffb3b6;border:1px solid #5c2a2d}
+.sim-banner.good{background:var(--teal-dim);color:#8fe6d8;border:1px solid #23504a}
+#normChart{height:240px;margin-top:20px}
+
+/* flow diagram */
+.flow{display:flex;flex-direction:column;gap:0;max-width:760px;margin:24px auto 0}
+.fnode{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px 18px;cursor:pointer;transition:border-color .15s}
+.fnode:hover{border-color:var(--faint)}
+.fnode.active{border-color:var(--teal)}
+.fnode .ft{font-family:var(--mono);font-size:13.5px;font-weight:650}
+.fnode .fd{font-size:12.5px;color:var(--sub);margin-top:2px}
+.farrow{width:2px;height:22px;background:var(--line);margin:0 auto;position:relative}
+.fbranch{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.fcol{display:flex;flex-direction:column;align-items:center}
+.fdetail{margin-top:20px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;font-size:14px;min-height:78px}
+.fdetail b{color:var(--teal)}
+
+/* code */
+.code-tabs{display:flex;gap:8px;margin-bottom:0}
+.code-tabs button{font-family:var(--mono);font-size:13px;padding:9px 18px;border:1px solid var(--line);background:var(--panel);color:var(--sub);border-radius:8px 8px 0 0;cursor:pointer}
+.code-tabs button.on.r{background:var(--red-dim);color:#ff9ba0}
+.code-tabs button.on.t{background:var(--teal-dim);color:#7fe0d1}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:0 10px 10px 10px;padding:18px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.75}
+pre .kw{color:#c792ea} pre .fn{color:#82aaff} pre .cm{color:#63707d} pre .st{color:#c3e88d} pre .nc{color:#ffcb6b}
+.codewrap{display:none} .codewrap.on{display:block}
+
+/* timeline */
+.tl{position:relative;margin-top:30px;padding-left:26px}
+.tl::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl-item{position:relative;padding-bottom:26px}
+.tl-item:last-child{padding-bottom:0}
+.tl-item::before{content:"";position:absolute;left:-23px;top:7px;width:12px;height:12px;border-radius:50%;background:var(--panel2);border:2px solid var(--faint)}
+.tl-item:last-child::before{border-color:var(--red);background:var(--red)}
+.tl-date{font-family:var(--mono);font-size:12.5px;color:var(--faint)}
+.tl-item h4{font-size:15px;font-weight:650;margin:2px 0 3px}
+.tl-item p{font-size:13.5px}
+
+/* footer */
+footer{padding:40px 0 56px;border-top:1px solid var(--line)}
+footer a{color:var(--teal);text-decoration:none}
+footer a:hover{text-decoration:underline}
+.note-line{font-size:13px;color:var(--faint);margin-top:10px}
+
+@media (max-width:760px){
+  .grid2,.grid3,.task-row,.fbranch{grid-template-columns:1fr}
+  .hero-stats{grid-template-columns:1fr}
+  .hero{padding:60px 0 48px}
+  section{padding:48px 0}
+  .sim{padding:18px}
+}
+</style>
+<link rel="stylesheet" href="./lang-switch.css">
+</head>
+<body>
+
+<!-- ===== Hero ===== -->
+<header class="hero">
+  <div class="hero-grid"></div>
+  <div class="wrap">
+    <div class="kicker">deepspeedai/DeepSpeed · PULL REQUEST #8605 · MERGED</div>
+    <h1>Implementing graph ops for NPU:<br>fixing silent graph_harvesting failures</h1>
+    <p class="lead" style="margin-top:16px">Gradient norm, gradient clipping, the BF16 optimizer's hp→lp write-back — on NPU this chain of short kernel sequences was quietly skipped by empty graph replays. Nothing raised an error, but the training numerics were already corrupted. This page interactively demonstrates the mechanism, the failure mode, and the fix.</p>
+    <div class="hero-meta">
+      <span class="tag">Author VenusTZZ</span>
+      <span class="tag">Fixes #8604</span>
+      <span class="tag">Follow-up #4318</span>
+      <span class="tag hot">Verified on real Ascend 910B4</span>
+      <span class="tag">CANN 8.5.0 / torch_npu 2.9</span>
+    </div>
+    <div class="hero-stats">
+      <div class="stat"><b class="r">3</b><span>silently failing compute paths<br>norm · clipping · gradient write-back</span></div>
+      <div class="stat"><b class="t">bitwise</b><span>5 training steps match eager after the fix<br>tensor by tensor, zero error</span></div>
+      <div class="stat"><b class="t">4.1–22.7×</b><span>graph replay of short kernel sequences<br>speedup range vs eager</span></div>
+    </div>
+  </div>
+</header>
+
+<!-- ===== Background: why graph harvesting is needed ===== -->
+<section id="background">
+  <div class="wrap">
+    <div class="kicker">01 / Background</div>
+    <h2>Short kernel sequences: the time goes to launches, not compute</h2>
+    <p class="lead" style="margin-top:10px">In ZeRO + BF16 mixed-precision training, each step runs far more than the big GEMM-class kernels: there is also a chain of very small operators — computing the gradient norm, clipping gradients by that norm, and writing the gradients accumulated on the fp32 master weights back to the bf16 weights. Each operator does almost no compute, so the fixed host-side cost of launching a kernel ends up dominating.</p>
+    <div class="grid2" style="margin-top:26px">
+      <div class="card">
+        <h3>Eager mode</h3>
+        <p style="font-size:13.5px">Every small operator is launched on its own: host submit → driver enqueue → device execute. Dozens of launches round-trip serially, and the device spends most of its time waiting.</p>
+      </div>
+      <div class="card">
+        <h3>Graph capture + replay</h3>
+        <p style="font-size:13.5px">The first step captures the whole operator chain as a device graph; every step after that is a single replay: one submission replays the entire graph and launch overhead drops to a minimum.</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:22px">
+      <div class="lane-head"><span>Click the button to compare the execution timeline of 20 small operators (illustrative)</span></div>
+      <div class="lane">
+        <div class="lane-head"><span style="color:var(--amber)">Eager: one launch per operator</span><span class="muted" id="eagerTime">—</span></div>
+        <div class="blocks" id="eagerBlocks"></div>
+        <div class="timeline-bar"><div class="timeline-fill e" id="eagerBar"></div></div>
+      </div>
+      <div class="lane">
+        <div class="lane-head"><span style="color:var(--teal)">Graph: a single replay</span><span class="muted" id="graphTime">—</span></div>
+        <div class="blocks" id="graphBlocks"></div>
+        <div class="timeline-bar"><div class="timeline-fill g" id="graphBar"></div></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn primary" id="launchBtn">Play comparison animation</button>
+      <span class="lane-note" style="margin-left:12px">The animation illustrates timing only; real-device speedups are in the chart at the end.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Core simulator ===== -->
+<section id="simulator">
+  <div class="wrap">
+    <div class="kicker">02 / Interactive core</div>
+    <h2>Five-step training simulator: stub vs fixed</h2>
+    <p class="lead" style="margin-top:10px">Switch modes and step through the run to watch the state of the three compute paths. Note that stub mode raises no exception at all — which is exactly what makes it dangerous.</p>
+
+    <div class="sim" style="margin-top:26px">
+      <div class="sim-top">
+        <div class="seg">
+          <button id="modeStub" class="on stub">Stub (before the fix)</button>
+          <button id="modeFixed" class="fixed">Fixed (after the fix)</button>
+        </div>
+        <div class="sim-controls">
+          <button class="btn teal" id="stepBtn">Step</button>
+          <button class="btn" id="autoBtn">Auto play</button>
+          <button class="btn" id="resetBtn">Reset</button>
+        </div>
+      </div>
+
+      <div class="step-strip" id="stepStrip"></div>
+
+      <div class="task-row">
+        <div class="task">
+          <div class="tname">Gradient norm _norm_tensors</div>
+          <div class="tval" id="vNorm">—</div>
+          <span class="tstate state-idle" id="sNorm">Pending</span>
+        </div>
+        <div class="task">
+          <div class="tname">Gradient clipping clip_tensors</div>
+          <div class="tval" id="vClip">—</div>
+          <span class="tstate state-idle" id="sClip">Pending</span>
+        </div>
+        <div class="task">
+          <div class="tname">hp→lp gradient write-back</div>
+          <div class="tval" id="vWb">—</div>
+          <span class="tstate state-idle" id="sWb">Pending</span>
+        </div>
+      </div>
+
+      <div class="sim-banner" id="simBanner"></div>
+      <div id="normChart"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Workflow ===== -->
+<section id="workflow">
+  <div class="wrap">
+    <div class="kicker">03 / Workflow</div>
+    <h2>How graph_process runs</h2>
+    <p class="lead" style="margin-top:10px">The entire path is device-agnostic; the only thing missing on NPU was the three graph interfaces. Click any node to see what it does.</p>
+
+    <div class="flow">
+      <div class="fnode" data-key="cfg"><div class="ft">ds_config["graph_harvesting"]: true</div><div class="fd">Config entry</div></div>
+      <div class="farrow"></div>
+      <div class="fnode" data-key="engine"><div class="ft">engine.graph_harvesting</div><div class="fd">The engine reads the switch and passes it down</div></div>
+      <div class="farrow"></div>
+      <div class="fnode" data-key="bf16"><div class="ft">BF16_Optimizer(graph_harvesting=True)</div><div class="fd">Norm / clipping / write-back are handed to graph_process for wrapping</div></div>
+      <div class="farrow"></div>
+      <div class="fnode" data-key="gp"><div class="ft">graph_process(func, graph_cache)</div><div class="fd">deepspeed/runtime/utils.py — the capture-or-replay decision point</div></div>
+      <div class="farrow"></div>
+      <div class="fbranch">
+        <div class="fcol">
+          <div class="fnode" data-key="capture" style="width:100%"><div class="ft">First step: capture</div><div class="fd">graph_cache miss</div></div>
+          <div class="farrow"></div>
+          <div class="fnode" data-key="warmup" style="width:100%"><div class="ft">Side-stream warmup</div><div class="fd">Runs once on a side stream first to populate the memory pool</div></div>
+          <div class="farrow"></div>
+          <div class="fnode" data-key="cm" style="width:100%"><div class="ft">with capture_to_graph(graph)</div><div class="fd">The function body runs eagerly once during capture, so the result is correct immediately</div></div>
+          <div class="farrow"></div>
+          <div class="fnode" data-key="cache" style="width:100%"><div class="ft">Graph written to graph_cache</div><div class="fd">Later steps never take the capture branch</div></div>
+        </div>
+        <div class="fcol">
+          <div class="fnode" data-key="replay" style="width:100%"><div class="ft">Later steps: replay_graph(graph)</div><div class="fd">Replays the recorded operator sequence</div></div>
+          <div class="farrow"></div>
+          <div class="fnode" data-key="stub" style="width:100%"><div class="ft">Stub: an empty function</div><div class="fd">Before the fix nothing runs here, so the computation is silently missing</div></div>
+          <div class="farrow"></div>
+          <div class="fnode" data-key="real" style="width:100%"><div class="ft">After the fix: graph.replay()</div><div class="fd">torch_npu replays the graph, matching eager bit for bit</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="fdetail" id="flowDetail">Click any node above and its detailed description appears here.</div>
+  </div>
+</section>
+
+<!-- ===== Code changes ===== -->
+<section id="code">
+  <div class="wrap">
+    <div class="kicker">04 / Code changes</div>
+    <h2>accelerator/npu_accelerator.py: an 8-line change</h2>
+    <p class="lead" style="margin-top:10px">The change lives entirely inside the three interfaces, and the signatures match the abstract base class exactly — so the device-agnostic main path needs no edits at all.</p>
+    <div style="margin-top:24px">
+      <div class="code-tabs">
+        <button id="tabStub" class="on r">Before: stub</button>
+        <button id="tabFixed">After: torch_npu graph API</button>
+      </div>
+      <div class="codewrap on" id="codeStub">
+<pre><span class="cm"># Graph operations — before the fix</span>
+<span class="kw">def</span> <span class="fn">create_graph</span>(self):
+    <span class="kw">return</span> <span class="nc">None</span>
+
+<span class="kw">def</span> <span class="fn">capture_to_graph</span>(self, graph, pool=<span class="nc">None</span>, stream=<span class="nc">None</span>):
+    <span class="kw">from</span> deepspeed.runtime.utils <span class="kw">import</span> noop_context
+    <span class="kw">return</span> <span class="fn">noop_context</span>()   <span class="cm"># an empty context that captures nothing</span>
+
+<span class="kw">def</span> <span class="fn">replay_graph</span>(self, graph):
+    <span class="kw">return</span>                  <span class="cm"># empty function: each step's "replay" ends here</span></pre>
+      </div>
+      <div class="codewrap" id="codeFixed">
+<pre><span class="cm"># Graph operations — after the fix</span>
+<span class="kw">def</span> <span class="fn">create_graph</span>(self):
+    <span class="kw">return</span> torch.npu.<span class="nc">NPUGraph</span>()
+
+<span class="kw">def</span> <span class="fn">capture_to_graph</span>(self, graph, pool=<span class="nc">None</span>, stream=<span class="nc">None</span>):
+    <span class="cm"># the context manager handles sync, cache cleanup, side-stream switching, and capture begin/end</span>
+    <span class="kw">return</span> torch.npu.<span class="fn">graph</span>(graph, pool, stream)
+
+<span class="kw">def</span> <span class="fn">replay_graph</span>(self, graph):
+    graph.<span class="fn">replay</span>()</pre>
+      </div>
+    </div>
+    <p class="note-line">The implementation mirrors HPU (#4912), MLU (#6472), and SUPA (#8054) exactly. The graph API is a core torch_npu interface across versions, so it is called directly with no existence check, consistent with backends such as CUDA.</p>
+  </div>
+</section>
+
+<!-- ===== Evolution timeline ===== -->
+<section id="timeline">
+  <div class="wrap">
+    <div class="kicker">05 / History</div>
+    <h2>How the gap appeared, and how it was closed</h2>
+    <div class="tl">
+      <div class="tl-item">
+        <div class="tl-date">2024</div>
+        <h4>#4318 introduces the graph ops abstraction</h4>
+        <p>Adds three interfaces — create_graph / capture_to_graph / replay_graph — for short kernel sequences. CUDA implements them first; NPU and other backends are left as stubs.</p>
+      </div>
+      <div class="tl-item">
+        <div class="tl-date">2024</div>
+        <h4>#4912 brings in HPU</h4>
+        <p>Habana implements the trio on its own runtime graph API, establishing the integration template for non-CUDA backends.</p>
+      </div>
+      <div class="tl-item">
+        <div class="tl-date">2024–2025</div>
+        <h4>#6472 MLU and #8054 SUPA join in turn</h4>
+        <p>Cambricon MLU and Biren SUPA implement the same abstraction, leaving NPU as the only backend still on a stub.</p>
+      </div>
+      <div class="tl-item">
+        <div class="tl-date">2026-09</div>
+        <h4>#8604 filed → #8605 fix merged</h4>
+        <p>Reproduces the silent failure on real hardware (norm frozen, clipping stopped, write-back stopped, with no error), implements the interfaces, and adds device-agnostic contract tests plus real-device performance data. Merged into master on September 22.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Performance data ===== -->
+<section id="performance">
+  <div class="wrap">
+    <div class="kicker">06 / Real-device data</div>
+    <h2>Measured results on Ascend 910B4</h2>
+    <p class="lead" style="margin-top:10px">Whole-block timing with torch.npu.synchronize() on both sides, best of three runs; CANN 8.5.0, torch 2.9.0, torch_npu 2.9.0.post7.</p>
+    <div class="card" style="margin-top:24px"><div id="perfChart" style="height:340px"></div></div>
+    <div class="grid3" style="margin-top:16px">
+      <div class="card"><b style="font-family:var(--mono);font-size:22px;color:var(--teal)">7.1×</b><p style="font-size:13px;margin-top:4px">200 independent tiny operators (norm-like)</p></div>
+      <div class="card"><b style="font-family:var(--mono);font-size:22px;color:var(--teal)">22.7×</b><p style="font-size:13px;margin-top:4px">50-step chained small operators (clip-like)</p></div>
+      <div class="card"><b style="font-family:var(--mono);font-size:22px;color:var(--teal)">4.1×</b><p style="font-size:13px;margin-top:4px">20 operators on a million-element tensor</p></div>
+    </div>
+    <p class="note-line">End-to-end verification: with graph_harvesting enabled, 5 training steps are bitwise identical to eager mode (equal loss, parameters torch.equal). We also found a pre-existing cross-backend issue — engine.step() defaults to zero_grad(set_to_none=True), which trips a graph-capture assertion. It is recorded in the PR with a suggestion to open a separate issue and was not mixed into this change.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p style="font-size:14px">Data source: <a href="https://github.com/deepspeedai/DeepSpeed/pull/8605" target="_blank" rel="noopener">DeepSpeed PR #8605</a> · <a href="https://github.com/deepspeedai/DeepSpeed/issues/8604" target="_blank" rel="noopener">Issue #8604</a></p>
+    <p class="note-line">The launch animation and five-step simulator on this page are teaching illustrations; the performance numbers and failure behavior come from real-device measurements recorded in the PR.</p>
+  </div>
+</footer>
+
+<script>
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const axisColor = '#2b3038', txtColor = '#9aa1ab';
+
+/* ---------- 01. Launch comparison animation ---------- */
+const N_BLK = 20;
+const eagerBlocks = document.getElementById('eagerBlocks');
+const graphBlocks = document.getElementById('graphBlocks');
+for (let i = 0; i < N_BLK; i++){
+  eagerBlocks.insertAdjacentHTML('beforeend', '<div class="blk"></div>');
+  graphBlocks.insertAdjacentHTML('beforeend', '<div class="blk"></div>');
+}
+const eBlks = eagerBlocks.querySelectorAll('.blk'), gBlks = graphBlocks.querySelectorAll('.blk');
+let launchTimer = null;
+document.getElementById('launchBtn').addEventListener('click', () => {
+  clearTimeout(launchTimer);
+  eBlks.forEach(b => b.className = 'blk'); gBlks.forEach(b => b.className = 'blk');
+  document.getElementById('eagerBar').style.width = '0%';
+  document.getElementById('graphBar').style.width = '0%';
+  document.getElementById('eagerTime').textContent = '—';
+  document.getElementById('graphTime').textContent = '—';
+  const delay = reduceMotion ? 0 : 90;
+  let i = 0;
+  const tick = () => {
+    if (i < N_BLK){
+      eBlks[i].classList.add('lit-e');
+      const pct = ((i + 1) / N_BLK * 100);
+      document.getElementById('eagerBar').style.width = pct + '%';
+      i++;
+      launchTimer = setTimeout(tick, delay);
+    } else {
+      document.getElementById('eagerTime').textContent = '20 launches · serial';
+      // once eager finishes, replay the graph once
+      launchTimer = setTimeout(() => {
+        gBlks.forEach(b => b.classList.add('lit-g'));
+        document.getElementById('graphBar').style.width = '8%';
+        document.getElementById('graphTime').textContent = '1 replay · whole graph submitted';
+      }, reduceMotion ? 0 : 250);
+    }
+  };
+  tick();
+});
+
+/* ---------- 02. Five-step training simulator ---------- */
+const REAL_NORM = [1.20, 0.95, 1.08, 0.87, 1.12];
+const CLIP_FACTOR = [0.83, 0.91, 0.78, 0.95, 0.86];
+let mode = 'stub', step = 0, autoTimer = null;
+
+const normChart = echarts.init(document.getElementById('normChart'), null, {renderer:'canvas'});
+function reportedNorm(i){
+  if (mode === 'fixed') return REAL_NORM[i];
+  return i === 0 ? REAL_NORM[0] : REAL_NORM[0]; // stub: frozen at the first step
+}
+function renderNormChart(){
+  const xs = REAL_NORM.map((_, i) => 'step ' + (i + 1));
+  const reported = REAL_NORM.map((_, i) => i < step ? reportedNorm(i) : null);
+  const real = REAL_NORM.map((_, i) => i < step ? REAL_NORM[i] : null);
+  normChart.setOption({
+    backgroundColor: 'transparent',
+    grid: {left: 48, right: 20, top: 42, bottom: 34},
+    title: {text: 'Gradient norm: true vs framework-reported', textStyle: {color: txtColor, fontSize: 13, fontWeight: 600}},
+    tooltip: {trigger: 'axis', backgroundColor: '#1f232a', borderColor: axisColor, textStyle: {color: '#e7e5df'}},
+    xAxis: {type: 'category', data: xs, axisLine: {lineStyle: {color: axisColor}}, axisLabel: {color: txtColor, fontFamily: 'ui-monospace'}},
+    yAxis: {type: 'value', min: 0.7, max: 1.3, axisLine: {show: false}, splitLine: {lineStyle: {color: axisColor}}, axisLabel: {color: txtColor, fontFamily: 'ui-monospace'}},
+    series: [
+      {name: 'True norm (eager)', type: 'line', data: real, smooth: false, itemStyle: {color: '#5b9dd9'}, lineStyle: {width: 2, type: 'dashed'}, symbolSize: 8},
+      {name: 'Framework-reported', type: 'line', data: reported, itemStyle: {color: mode === 'stub' ? '#e5484d' : '#2fb8a6'}, lineStyle: {width: 3}, symbolSize: 9,
+       markLine: mode === 'stub' && step >= 2 ? {silent: true, symbol: 'none', lineStyle: {color: '#e5484d', type: 'dotted'}, data: [{yAxis: 1.20, label: {color: '#e5484d', formatter: 'frozen line 1.20'}}]} : undefined}
+    ]
+  });
+}
+function renderSim(){
+  const strip = document.getElementById('stepStrip');
+  strip.innerHTML = '';
+  for (let i = 0; i < 5; i++){
+    let cls = 'step-dot';
+    if (i < step) cls += ' done';
+    if (i === step - 1) cls += mode === 'stub' && i >= 1 ? ' cur bad' : ' cur';
+    strip.insertAdjacentHTML('beforeend', '<div class="' + cls + '">' + (i + 1) + '</div>');
+  }
+  const setTask = (vId, sId, val, state, stateCls) => {
+    document.getElementById(vId).textContent = val;
+    const el = document.getElementById(sId);
+    el.textContent = state; el.className = 'tstate ' + stateCls;
+  };
+  if (step === 0){
+    [['vNorm','sNorm'],['vClip','sWb'],['vWb','sWb']].forEach(()=>{});
+    setTask('vNorm','sNorm','—','Pending','state-idle');
+    setTask('vClip','sClip','—','Pending','state-idle');
+    setTask('vWb','sWb','—','Pending','state-idle');
+  } else {
+    const i = step - 1;
+    const broken = mode === 'stub' && i >= 1;
+    setTask('vNorm','sNorm',
+      broken ? REAL_NORM[0].toFixed(2) : REAL_NORM[i].toFixed(2),
+      broken ? 'Frozen · wrong' : 'Updated · correct',
+      broken ? 'state-bad' : 'state-ok');
+    setTask('vClip','sClip',
+      broken ? 'SKIP' : '× ' + CLIP_FACTOR[i].toFixed(2),
+      broken ? 'Clipping stopped' : 'Clipping applied',
+      broken ? 'state-bad' : 'state-ok');
+    setTask('vWb','sWb',
+      broken ? 'STOP' : 'SYNC',
+      broken ? 'Write-back stopped' : 'Write-back done',
+      broken ? 'state-bad' : 'state-ok');
+  }
+  const banner = document.getElementById('simBanner');
+  if (step === 0){ banner.className = 'sim-banner'; banner.textContent = ''; }
+  else if (mode === 'stub' && step >= 2){
+    banner.className = 'sim-banner show bad';
+    banner.textContent = 'No exception is raised. But from step 2 on, replay is an empty function: norm frozen, clipping ineffective, hp→lp write-back stopped — the training numerics are already corrupted.';
+  } else {
+    banner.className = 'sim-banner show good';
+    banner.textContent = mode === 'stub'
+      ? 'In step 1 the capture path runs the function body eagerly, so the result is correct — the failure only shows up at step 2.'
+      : 'graph.replay() truly replays the graph; all three paths match eager execution at every step.';
+  }
+  renderNormChart();
+}
+function doStep(){
+  if (step < 5){ step++; renderSim(); }
+  if (step >= 5 && autoTimer){ clearInterval(autoTimer); autoTimer = null; document.getElementById('autoBtn').textContent = 'Auto play'; }
+}
+function resetSim(){
+  clearInterval(autoTimer); autoTimer = null; step = 0;
+  document.getElementById('autoBtn').textContent = 'Auto play';
+  document.getElementById('stepBtn').disabled = false;
+  renderSim();
+}
+document.getElementById('stepBtn').addEventListener('click', doStep);
+document.getElementById('resetBtn').addEventListener('click', resetSim);
+document.getElementById('autoBtn').addEventListener('click', (e) => {
+  if (autoTimer){ clearInterval(autoTimer); autoTimer = null; e.target.textContent = 'Auto play'; return; }
+  if (step >= 5) resetSim();
+  e.target.textContent = 'Pause';
+  autoTimer = setInterval(doStep, reduceMotion ? 350 : 900);
+});
+function setMode(m){
+  mode = m; resetSim();
+  document.getElementById('modeStub').classList.toggle('on', m === 'stub');
+  document.getElementById('modeFixed').classList.toggle('on', m === 'fixed');
+}
+document.getElementById('modeStub').addEventListener('click', () => setMode('stub'));
+document.getElementById('modeFixed').addEventListener('click', () => setMode('fixed'));
+renderSim();
+
+/* ---------- 03. Flow-chart node details ---------- */
+const FLOW_DETAIL = {
+  cfg: '<b>Config entry</b>: write "graph_harvesting": true in the DeepSpeed JSON config. The feature is off by default and only takes effect when explicitly enabled.',
+  engine: '<b>Engine layer</b>: DeepSpeedEngine reads the config and stores the switch on itself, passing it down when it initializes the BF16 optimizer.',
+  bf16: '<b>BF16_Optimizer</b>: norm computation, gradient clipping, and hp→lp write-back are each wrapped by graph_process; the optimizer itself is unaware of device differences.',
+  gp: '<b>Decision point</b>: graph_process checks whether graph_cache already holds a graph for this function — if not, it captures; if so, it replays. This is the heart of the mechanism.',
+  capture: '<b>First-step capture branch</b>: the cache misses, so a graph object is created and the capture context is entered.',
+  warmup: '<b>Side-stream warmup</b>: run the same work once on a side stream so the memory pool finishes allocating and lazy initialization completes, avoiding dynamic allocation during capture.',
+  cm: '<b>Capture context</b>: the function body inside the with block actually executes once while capturing (eager semantics), so the output of the first step is immediately available and numerically correct.',
+  cache: '<b>Into the cache</b>: the captured graph object is stored in graph_cache, and every later step takes the replay branch.',
+  replay: '<b>Replay branch</b>: replay the recorded operator sequence directly on fixed device-memory addresses; each step fills its inputs into static buffers.',
+  stub: '<b>Failure point</b>: the stub replay is an empty function — no operators run and no exception is thrown, so norm, clipping, and write-back all stall silently.',
+  real: '<b>Fix</b>: call replay() on the torch_npu graph object to replay the whole graph at run time, with results bitwise identical to eager.'
+};
+document.querySelectorAll('.fnode').forEach(node => {
+  node.addEventListener('click', () => {
+    document.querySelectorAll('.fnode').forEach(n => n.classList.remove('active'));
+    node.classList.add('active');
+    document.getElementById('flowDetail').innerHTML = FLOW_DETAIL[node.dataset.key];
+  });
+});
+
+/* ---------- 04. Code tabs ---------- */
+function codeTab(onId, offId, wrapOn, wrapOff){
+  document.getElementById(onId).classList.add('on');
+  document.getElementById(offId).classList.remove('on');
+  document.getElementById(wrapOn).classList.add('on');
+  document.getElementById(wrapOff).classList.remove('on');
+}
+document.getElementById('tabStub').addEventListener('click', () => codeTab('tabStub','tabFixed','codeStub','codeFixed'));
+document.getElementById('tabFixed').addEventListener('click', () => codeTab('tabFixed','tabStub','codeFixed','codeStub'));
+
+/* ---------- 05. Performance chart ---------- */
+const perfChart = echarts.init(document.getElementById('perfChart'));
+perfChart.setOption({
+  backgroundColor: 'transparent',
+  grid: {left: 70, right: 30, top: 60, bottom: 40},
+  tooltip: {trigger: 'axis', backgroundColor: '#1f232a', borderColor: axisColor, textStyle: {color: '#e7e5df'},
+    formatter: p => p[0].name + '<br>' + p.map(x => x.marker + x.seriesName + ': ' + x.value + ' μs/iter').join('<br>')},
+  legend: {data: ['eager', 'graph replay'], textStyle: {color: txtColor}, top: 12},
+  xAxis: {type: 'category', data: ['200 tiny ops', '50-step chained ops', '20 ops / 1M tensor'],
+    axisLine: {lineStyle: {color: axisColor}}, axisLabel: {color: txtColor, fontSize: 12.5}},
+  yAxis: {type: 'value', name: 'μs/iter', nameTextStyle: {color: txtColor}, axisLabel: {color: txtColor, fontFamily: 'ui-monospace'},
+    splitLine: {lineStyle: {color: axisColor}}},
+  series: [
+    {name: 'eager', type: 'bar', data: [6456, 3067, 1271], itemStyle: {color: '#e2a03f', borderRadius: [4,4,0,0]}, barWidth: 34,
+     label: {show: true, position: 'top', color: '#e2a03f', fontFamily: 'ui-monospace', fontSize: 11.5}},
+    {name: 'graph replay', type: 'bar', data: [910, 135, 307], itemStyle: {color: '#2fb8a6', borderRadius: [4,4,0,0]}, barWidth: 34,
+     label: {show: true, position: 'top', color: '#2fb8a6', fontFamily: 'ui-monospace', fontSize: 11.5,
+       formatter: p => p.value + '  (' + ['7.1x','22.7x','4.1x'][p.dataIndex] + ')'}}
+  ]
+});
+
+window.addEventListener('resize', () => { normChart.resize(); perfChart.resize(); });
+</script>
+<!-- lang-switch:start -->
+<a class="lang-switch" href="./npu-graph-interactive.html" hreflang="zh-CN" data-lang="zh" aria-label="切换到中文">中文</a>
+<script src="./lang-switch.js"></script>
+<!-- lang-switch:end -->
+</body>
+</html>

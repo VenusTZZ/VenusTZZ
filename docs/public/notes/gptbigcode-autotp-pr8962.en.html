@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR #8962 · How the AutoTP multi-query GPTBigCode fix works</title>
+<meta name="note:title:en" content="Fixing empty shards and non-contiguous gradients in multi-query GPTBigCode when TP &gt; 1">
+<meta name="note:description:en" content="One PR fixes two orthogonal defects: a sharding mismatch (transformers 5.x exposing num_key_value_heads=1, leaving some ranks with empty attention) and HCCL rejecting non-contiguous transposed gradients from torch_npu. Toggle the controls to see each rank's actual tensor shapes before and after the fix.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e141b'/%3E%3Crect x='6' y='6' width='20' height='7' rx='1.5' fill='%234ea8de'/%3E%3Crect x='6' y='15' width='20' height='11' rx='1.5' fill='%23e8a34d'/%3E%3C/svg%3E">
+<style>
+/* ============ 设计 token：分布式系统观测台 ============ */
+:root{
+  --bg:#0e141b; --panel:#141d27; --panel-2:#1a2531; --line:#263544; --line-soft:#1e2b38;
+  --txt:#d6e0ea; --txt-2:#8fa0b0; --txt-3:#5f7182;
+  --q:#4ea8de; --q-dim:#2c5f85; --kv:#e8a34d; --kv-dim:#8a5e27;
+  --err:#e0625c; --ok:#5cbf8f; --accent:#7dd3fc; --purple:#9d8cdf;
+  --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+::selection{background:#2c5f85;color:#fff}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ============ 顶部导航 ============ */
+header.nav{position:sticky;top:0;z-index:50;background:rgba(14,20,27,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line-soft)}
+.nav-inner{max-width:1080px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.brand{font-family:var(--mono);font-size:13px;letter-spacing:.5px;color:var(--txt);display:flex;align-items:center;gap:8px;white-space:nowrap}
+.brand b{color:var(--accent)}
+.nav-links{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
+.nav-links a{color:var(--txt-2);font-size:13px;padding:6px 10px;border-radius:5px}
+.nav-links a:hover{color:var(--txt);background:var(--panel-2);text-decoration:none}
+
+/* ============ Hero ============ */
+.hero{padding:72px 0 48px;border-bottom:1px solid var(--line-soft);position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:0;background-image:linear-gradient(var(--line-soft) 1px,transparent 1px),linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);background-size:44px 44px;opacity:.35;pointer-events:none}
+.hero .wrap{position:relative}
+.tag{display:inline-block;font-family:var(--mono);font-size:12px;color:var(--accent);border:1px solid var(--line);border-radius:4px;padding:3px 9px;margin-bottom:20px;background:var(--panel)}
+.hero h1{font-size:34px;line-height:1.3;font-weight:700;letter-spacing:-.5px;max-width:780px}
+.hero h1 .hl{color:var(--q)}
+.hero p.sub{margin-top:16px;color:var(--txt-2);max-width:720px;font-size:16px}
+.hero-meta{display:flex;gap:28px;flex-wrap:wrap;margin-top:28px;font-family:var(--mono);font-size:12.5px;color:var(--txt-3)}
+.hero-meta span b{color:var(--txt-2);font-weight:400}
+
+/* ============ 通用 section ============ */
+section.block{padding:56px 0;border-bottom:1px solid var(--line-soft)}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:10px}
+.sec-no{font-family:var(--mono);font-size:13px;color:var(--txt-3)}
+h2{font-size:24px;font-weight:700;letter-spacing:-.3px}
+.sec-desc{color:var(--txt-2);max-width:760px;margin-bottom:30px}
+h3{font-size:16px;font-weight:600;margin:26px 0 12px}
+p.note{color:var(--txt-2);font-size:14px;margin-top:12px}
+code,.mono{font-family:var(--mono);font-size:.9em}
+p code,li code{background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--accent)}
+
+/* ============ 图例 ============ */
+.legend{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:18px;font-size:13px;color:var(--txt-2)}
+.legend i{display:inline-block;width:13px;height:13px;border-radius:3px;margin-right:7px;vertical-align:-2px}
+.legend .q{background:var(--q)} .legend .kv{background:var(--kv)}
+
+/* ============ 融合 c_attn 静态结构图 ============ */
+.fused-demo{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.tensor{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;flex:1;min-width:260px}
+.tensor-title{font-family:var(--mono);font-size:12.5px;color:var(--txt-2);margin-bottom:12px}
+.weight-block{display:flex;flex-direction:column;gap:3px}
+.q-rows{display:flex;gap:3px}
+.q-head{flex:1;background:var(--q);border-radius:3px;height:46px;display:flex;align-items:flex-end;justify-content:center;font-family:var(--mono);font-size:11px;color:#0b121a;padding-bottom:4px;font-weight:600}
+.kv-rows{display:flex;gap:3px}
+.kv-part{flex:1;background:var(--kv);border-radius:3px;height:30px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:#1a1206;font-weight:600}
+.dim-label{font-family:var(--mono);font-size:11.5px;color:var(--txt-3);margin-top:10px;text-align:right}
+.explainer{flex:1;min-width:260px}
+.explainer ul{list-style:none}
+.explainer li{padding:10px 0;border-bottom:1px solid var(--line-soft);color:var(--txt-2);font-size:14px}
+.explainer li:last-child{border-bottom:0}
+.explainer b{color:var(--txt);font-weight:600}
+
+/* ============ 模拟器控件 ============ */
+.console{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:24px}
+.ctrl-row{display:flex;gap:22px;flex-wrap:wrap;align-items:center}
+.ctrl{display:flex;align-items:center;gap:9px}
+.ctrl-label{font-size:13px;color:var(--txt-2);min-width:74px}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{background:var(--panel-2);color:var(--txt-2);border:0;padding:7px 15px;font-family:var(--mono);font-size:12.5px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--q);color:#0b121a;font-weight:600}
+.seg.fix button.on{background:var(--ok)}
+.verdict{margin-top:16px;padding:12px 14px;border-radius:6px;font-size:13.5px;display:flex;gap:10px;align-items:flex-start}
+.verdict.ok{background:rgba(92,191,143,.1);border:1px solid rgba(92,191,143,.35);color:#9fe0c2}
+.verdict.err{background:rgba(224,98,92,.1);border:1px solid rgba(224,98,92,.35);color:#f0a09c}
+.verdict code{color:inherit;background:rgba(0,0,0,.25);border-color:transparent}
+
+/* ============ rank 卡片 ============ */
+.ranks{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.rank-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;transition:border-color .2s}
+.rank-card.broken{border-color:rgba(224,98,92,.55)}
+.rank-name{font-family:var(--mono);font-size:12.5px;color:var(--txt-2);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.badge{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:3px;letter-spacing:.3px}
+.badge.bad{background:rgba(224,98,92,.18);color:#f0a09c}
+.badge.good{background:rgba(92,191,143,.15);color:#9fe0c2}
+.shard-vis{display:flex;gap:4px;height:86px;align-items:stretch;margin-bottom:10px}
+.sv-q{display:flex;flex-direction:column;gap:2px;flex:0 0 auto;width:64px}
+.sv-q .qh{background:var(--q);border-radius:2px;flex:1;min-height:0}
+.sv-q .qh.empty{background:repeating-linear-gradient(45deg,rgba(224,98,92,.18),rgba(224,98,92,.18) 4px,rgba(224,98,92,.07) 4px,rgba(224,98,92,.07) 8px);border:1px dashed rgba(224,98,92,.5)}
+.sv-kv{display:flex;flex-direction:column;gap:2px;flex:1}
+.sv-kv .krow{background:var(--kv);border-radius:2px;flex:1}
+.shapes{font-family:var(--mono);font-size:11.5px;color:var(--txt-2);line-height:1.9}
+.shapes b{color:var(--txt);font-weight:400}
+.shapes .zero{color:var(--err)}
+
+/* ============ 03 梯度布局对比 ============ */
+.layout-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.lc{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
+.lc-head{font-family:var(--mono);font-size:13px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.lc-head .dev{color:var(--txt-2)}
+.lc-sub{font-family:var(--mono);font-size:11.5px;color:var(--txt-3);margin-bottom:14px}
+.mem{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;margin-bottom:14px}
+.mem span{aspect-ratio:1;border-radius:2px;background:var(--q-dim)}
+.mem.trans span{background:var(--purple);opacity:.55}
+.mem span.kv{background:var(--kv-dim)}
+.mem.trans span.kv{background:var(--kv);opacity:.85}
+.stride{font-family:var(--mono);font-size:11.5px;color:var(--txt-2);line-height:2}
+.stride b{color:var(--txt);font-weight:400}
+.flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;font-family:var(--mono);font-size:11.5px}
+.chip{border:1px solid var(--line);background:var(--panel-2);border-radius:5px;padding:5px 10px;color:var(--txt-2)}
+.chip.bad{border-color:rgba(224,98,92,.5);color:#f0a09c;background:rgba(224,98,92,.08)}
+.chip.good{border-color:rgba(92,191,143,.5);color:#9fe0c2;background:rgba(92,191,143,.08)}
+.arrow{color:var(--txt-3)}
+
+/* ============ 04 工作流 stepper ============ */
+.stepper{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.step-bar{display:flex;border-bottom:1px solid var(--line)}
+.step-tab{flex:1;background:transparent;border:0;color:var(--txt-3);font-family:var(--mono);font-size:12px;padding:13px 6px;cursor:pointer;border-right:1px solid var(--line-soft);white-space:nowrap;overflow:hidden}
+.step-tab:last-child{border-right:0}
+.step-tab.on{color:var(--accent);background:var(--panel-2);box-shadow:inset 0 -2px 0 var(--accent)}
+.step-body{padding:26px;display:grid;grid-template-columns:1.2fr 1fr;gap:26px;align-items:center}
+.step-body h3{margin-top:0}
+.step-body p{color:var(--txt-2);font-size:14px}
+.step-vis{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:18px;min-height:170px;display:flex;flex-direction:column;justify-content:center;gap:10px}
+.mini-row{display:flex;gap:6px;align-items:stretch;height:34px}
+.mini-q{background:var(--q);border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10.5px;color:#0b121a;font-weight:600}
+.mini-kv{background:var(--kv);border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10.5px;color:#1a1206;font-weight:600}
+.mini-ghost{border:1px dashed var(--line);border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--txt-3)}
+.mini-ar{font-family:var(--mono);font-size:10.5px;color:var(--purple);border:1px solid var(--line);border-radius:4px;display:flex;align-items:center;justify-content:center;padding:0 8px}
+.step-nav{display:flex;justify-content:space-between;padding:0 26px 22px}
+.step-nav button{background:var(--panel-2);border:1px solid var(--line);color:var(--txt-2);border-radius:6px;padding:8px 18px;font-family:var(--mono);font-size:12.5px;cursor:pointer}
+.step-nav button:disabled{opacity:.35;cursor:default}
+.step-nav button:hover:not(:disabled){border-color:var(--q);color:var(--txt)}
+
+/* ============ 05 修复方案 ============ */
+.fix-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.fix-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
+.fix-file{font-family:var(--mono);font-size:12.5px;color:var(--accent);margin-bottom:10px}
+.fix-card ul{list-style:none}
+.fix-card li{font-size:13.5px;color:var(--txt-2);padding:6px 0 6px 16px;position:relative}
+.fix-card li::before{content:"";position:absolute;left:0;top:14px;width:5px;height:5px;border-radius:50%;background:var(--q)}
+.fix-card li b{color:var(--txt);font-weight:600}
+
+/* ============ 06 验证矩阵 ============ */
+table.matrix{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:13.5px}
+table.matrix th,table.matrix td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line-soft)}
+table.matrix th{background:var(--panel-2);color:var(--txt-2);font-weight:600;font-size:12.5px}
+table.matrix tr:last-child td{border-bottom:0}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:1px}
+.dot.g{background:var(--ok)} .dot.r{background:var(--err)} .dot.y{background:var(--kv)}
+.caveat{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--kv);border-radius:8px;padding:18px 20px;margin-top:18px}
+.caveat h3{margin:0 0 8px}
+.caveat p{font-size:13.5px;color:var(--txt-2)}
+.formula{font-family:var(--mono);font-size:13px;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-top:12px;color:var(--txt);overflow-x:auto}
+footer{padding:34px 0 46px;color:var(--txt-3);font-size:12.5px}
+footer .mono{font-size:12px}
+
+@media (max-width:760px){
+  .hero{padding:52px 0 38px}.hero h1{font-size:26px}
+  .ranks,.layout-grid,.step-body,.fix-grid{grid-template-columns:1fr}
+  .step-tab{font-size:10.5px;padding:10px 3px}
+  .step-body{padding:20px}
+  table.matrix{font-size:12.5px}table.matrix th,table.matrix td{padding:9px 9px}
+}
+</style>
+<link rel="stylesheet" href="./lang-switch.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <div class="brand"><svg width="16" height="16" viewBox="0 0 32 32"><rect x="3" y="3" width="13" height="13" rx="2" fill="#4ea8de"/><rect x="16" y="3" width="13" height="13" rx="2" fill="#4ea8de" opacity=".55"/><rect x="3" y="16" width="13" height="13" rx="2" fill="#e8a34d"/><rect x="16" y="16" width="13" height="13" rx="2" fill="#e8a34d" opacity=".55"/></svg>DeepSpeed <b>PR #8962</b></div>
+    <nav class="nav-links">
+      <a href="#background">Background structure</a>
+      <a href="#simulator">Shard simulator</a>
+      <a href="#layout">Gradient layout</a>
+      <a href="#workflow">Workflow</a>
+      <a href="#fix">The fix</a>
+      <a href="#validation">Validation matrix</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ===== Hero ===== -->
+<div class="hero">
+  <div class="wrap">
+    <span class="tag">bug fix · training · AutoTP</span>
+    <h1>Fixing empty shards and non-contiguous gradients in <span class="hl">multi-query GPTBigCode</span> when TP &gt; 1</h1>
+    <p class="sub">One PR fixes two orthogonal defects: a sharding mismatch (transformers 5.x exposing num_key_value_heads=1, leaving some ranks with empty attention) and HCCL rejecting non-contiguous transposed gradients from torch_npu. Toggle the controls below to see each rank's actual tensor shapes before and after the fix.</p>
+    <div class="hero-meta">
+      <span><b>repo</b> deepspeedai/DeepSpeed</span>
+      <span><b>pr</b> #8962 → issue #8961</span>
+      <span><b>NPU</b> 4×910B4 / CANN 8.5.1</span>
+      <span><b>CUDA</b> 4×A100 / NCCL 2.29</span>
+      <span><b>Δlogit</b> 1.2e-7</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 1. 背景结构 ===== -->
+<section class="block" id="background">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">01</span><h2>Start with the physical layout of the fused weight</h2></div>
+    <p class="sec-desc">GPTBigCode uses multi-query attention (MQA): the model has only 1 KV head in total, and all query heads share the same K/V. Its fused projection <code>c_attn</code> packs Q, K, and V into a single weight, laid out as “query rows first, then the whole shared K/V block”.</p>
+    <div class="legend">
+      <span><i class="q"></i>Query rows: sharded by head (varies per rank)</span>
+      <span><i class="kv"></i>K/V block: replicated whole (every rank keeps a full copy)</span>
+    </div>
+    <div class="fused-demo">
+      <div class="tensor">
+        <div class="tensor-title">c_attn.weight = [out_features, in_features], hidden = 32, heads = 4</div>
+        <div class="weight-block">
+          <div class="q-rows">
+            <div class="q-head">Q h0</div><div class="q-head">Q h1</div><div class="q-head">Q h2</div><div class="q-head">Q h3</div>
+          </div>
+          <div class="kv-rows">
+            <div class="kv-part">K (shared, 8 rows)</div>
+            <div class="kv-part">V (shared, 8 rows)</div>
+          </div>
+        </div>
+        <div class="dim-label">out = 32 (Q) + 16 (K/V) = 48 rows　·　in = 32</div>
+      </div>
+      <div class="explainer">
+        <ul>
+          <li><b>Q rows are sharded</b>: when TP splits the weight, <code>_bigcode_type_transpose</code> shards only this part, so each rank holds hidden/TP rows.</li>
+          <li><b>The K/V block is replicated</b>: at any TP degree, every rank holds the full 16 K/V rows and never shards them.</li>
+          <li><b>Replication creates a gradient problem</b>: each rank produces K/V gradients only for its own Q heads, so they must be summed with all-reduce; otherwise the K/V rows that should be identical would drift apart after the update.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 2. 分片模拟器 ===== -->
+<section class="block" id="simulator">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">02</span><h2>Shard simulator: what actually happened before the fix</h2></div>
+    <p class="sec-desc">Sample model: hidden=32, 4 attention heads, MQA. Switch the TP degree, transformers version, and fix state to see the <code>c_attn</code> and <code>c_proj</code> shapes each rank receives.</p>
+
+    <div class="console">
+      <div class="ctrl-row">
+        <div class="ctrl"><span class="ctrl-label">TP degree</span>
+          <div class="seg" id="seg-tp"><button data-v="2" class="on">TP=2</button><button data-v="4">TP=4</button></div>
+        </div>
+        <div class="ctrl"><span class="ctrl-label">transformers</span>
+          <div class="seg" id="seg-tf"><button data-v="4" class="on">4.44.2</button><button data-v="5">5.x</button></div>
+        </div>
+        <div class="ctrl"><span class="ctrl-label">Code state</span>
+          <div class="seg fix" id="seg-fix"><button data-v="0" class="on">master (before fix)</button><button data-v="1">with this PR</button></div>
+        </div>
+      </div>
+      <div class="verdict" id="verdict"></div>
+    </div>
+
+    <div class="ranks" id="ranks"></div>
+    <p class="note" id="sim-note"></p>
+  </div>
+</section>
+
+<script>
+/* ============ 分片模拟器状态与渲染 ============ */
+const state={tp:2,tf:4,fix:0};
+const HIDDEN=32, HEADS=4, KV_ROWS=16;
+
+function shardList(total,parts){ // 整除分片，返回每片大小
+  const base=Math.floor(total/parts),arr=Array(parts).fill(base);
+  for(let i=0;i<total%parts;i++)arr[i]++;
+  return arr;
+}
+function compute(){
+  // 有效分片基数：修复后强制按 Q head；修复前 4.x 回退 attention head，5.x 错误地用 KV head=1
+  const count = state.fix ? HEADS : (state.tf===4 ? HEADS : 1);
+  const qShard = shardList(HIDDEN, count).concat(Array(Math.max(0,state.tp-count)).fill(0)).slice(0,state.tp);
+  const broken = state.fix===0 && state.tf===5;
+  return {qShard,broken,count};
+}
+function render(){
+  const {qShard,broken,count}=compute();
+  const box=document.getElementById('ranks');
+  box.innerHTML='';
+  qShard.forEach((q,i)=>{
+    const isEmpty=q===0;
+    const card=document.createElement('div');
+    card.className='rank-card'+(isEmpty?' broken':'');
+    const qHeads=[];
+    const localHeads=q/8;
+    for(let k=0;k<Math.max(localHeads,1);k++) qHeads.push(`<div class="qh${isEmpty?' empty':''}"></div>`);
+    card.innerHTML=`
+      <div class="rank-name">rank ${i}
+        <span class="badge ${isEmpty?'bad':'good'}">${isEmpty?'EMPTY SHARD':'healthy'}</span></div>
+      <div class="shard-vis">
+        <div class="sv-q" style="${isEmpty?'width:24px':''}">${qHeads.join('')}</div>
+        <div class="sv-kv"><div class="krow"></div><div class="krow"></div></div>
+      </div>
+      <div class="shapes">
+        c_attn.weight = <b>(${q+KV_ROWS}, 32)</b><br>
+        c_proj.weight = (32, <b class="${isEmpty?'zero':''}">${q}</b>)<br>
+        num_heads = <b class="${isEmpty?'zero':''}">${localHeads}</b>　kv_heads = 1
+      </div>`;
+    box.appendChild(card);
+  });
+  const v=document.getElementById('verdict');
+  if(broken){
+    v.className='verdict err';
+    v.innerHTML=`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e0625c" stroke-width="2" style="flex:0 0 auto;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.1"/></svg>
+      <div>The shard count is erroneously derived from <code>num_key_value_heads = 1</code>. At TP=${state.tp}, only ${count} rank(s) can receive query rows; every other rank sees a <code>c_proj</code> input dimension of 0. NPU backward fails with <code>cannot reshape tensor of 0 elements</code>; CUDA forward SDPA fails with <code>heads in key/value must divide heads in query</code>, and another rank hangs in all-reduce.</div>`;
+  }else{
+    v.className='verdict ok';
+    const reason=state.fix
+      ? `This PR detects the bigcodetype replicated K/V layout and forces the shard count to <code>num_attention_heads = ${HEADS}</code>; each rank holds ${HIDDEN/state.tp} query rows plus the full K/V block.`
+      : `transformers 4.44.2 does not expose <code>num_key_value_heads</code>, so the metadata falls back to the attention head count ${HEADS}; there are no empty shards (but NPU can still hit defect B — see the next section).`;
+    v.innerHTML=`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5cbf8f" stroke-width="2" style="flex:0 0 auto;margin-top:2px"><path d="M4 12.5l5 5L20 7"/></svg><div>${reason}</div>`;
+  }
+  document.getElementById('sim-note').textContent =
+    broken ? 'Note: rank 0 often does not fail directly — it blocks in the row-parallel all-reduce of c_proj, waiting on a rank that already failed. The symptom is a hang; the root cause is the empty shard from earlier.'
+           : 'The K/V block has the same shape on every rank (16 rows), and a dedicated hook all-reduces its gradients so that all ranks keep identical K/V rows after the update.';
+}
+document.querySelectorAll('#seg-tp,#seg-tf,#seg-fix').forEach(seg=>{
+  const key=seg.id==='seg-tp'?'tp':seg.id==='seg-tf'?'tf':'fix';
+  seg.addEventListener('click',e=>{
+    const btn=e.target.closest('button');if(!btn)return;
+    seg.querySelectorAll('button').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    state[key]=Number(btn.dataset.v);
+    render();
+  });
+});
+render();
+</script>
+
+<!-- ===== 3. 缺陷 B：梯度布局 ===== -->
+<section class="block" id="layout">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">03</span><h2>Defect B: one matmul, two memory layouts</h2></div>
+    <p class="sec-desc">The K/V gradient all-reduce operates on a view carved out of the fused gradient by <code>narrow()</code>. CUDA's matmul backward returns a contiguous <code>[out, in]</code> gradient; torch_npu returns a transposed, non-contiguous layout. Both NCCL and HCCL reject non-contiguous collective inputs — this is independent of the transformers version, and NPU fails on 4.44.2 as well.</p>
+    <div class="layout-grid">
+      <div class="lc">
+        <div class="lc-head"><span class="dev">CUDA / NCCL</span><span class="badge good">contiguous</span></div>
+        <div class="lc-sub">grad (32, 32)　stride (32, 1)　narrow → KV (16, 32)</div>
+        <div class="mem" id="mem-cuda"></div>
+        <div class="stride">is_contiguous() = <b>True</b>　·　the view is contiguous row by row</div>
+        <div class="flow"><span class="chip good">narrow view</span><span class="arrow">→</span><span class="chip good">all_reduce in place</span><span class="arrow">→</span><span class="chip">zero extra copies</span></div>
+      </div>
+      <div class="lc">
+        <div class="lc-head"><span class="dev">NPU / HCCL (torch_npu)</span><span class="badge bad">non-contiguous</span></div>
+        <div class="lc-sub">grad (32, 32)　stride (1, 32)　clone() preserves the transposed layout</div>
+        <div class="mem trans" id="mem-npu"></div>
+        <div class="stride">is_contiguous() = <b style="color:#f0a09c">False</b>　·　the KV view stays non-contiguous after narrow</div>
+        <div class="flow"><span class="chip bad">narrow view</span><span class="arrow">→</span><span class="chip bad">HCCL: Tensors must be contiguous</span></div>
+      </div>
+    </div>
+    <h3>Branching after the fix: no backend hardcoding, decide by tensor layout</h3>
+    <div class="flow" style="font-size:12.5px">
+      <span class="chip">KV view numel == 0?</span><span class="arrow">→</span><span class="chip">skip (the replicated block is empty on all ranks)</span>
+      <span class="arrow">|</span>
+      <span class="chip">Contiguous?</span><span class="arrow">→</span><span class="chip good">all_reduce in place</span>
+      <span class="arrow">|</span>
+      <span class="chip">Non-contiguous?</span><span class="arrow">→</span><span class="chip">stage via .contiguous()</span><span class="arrow">→</span><span class="chip good">all_reduce</span><span class="arrow">→</span><span class="chip">copy_ back into the autograd view</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 4. 工作流程 ===== -->
+<section class="block" id="workflow">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">04</span><h2>The full workflow of a single training step</h2></div>
+    <p class="sec-desc">Click a step or use the buttons to advance, and watch the timeline of forward, backward, and K/V gradient summation on each rank.</p>
+    <div class="stepper">
+      <div class="step-bar" id="step-bar"></div>
+      <div class="step-body">
+        <div>
+          <h3 id="step-title"></h3>
+          <p id="step-text"></p>
+        </div>
+        <div class="step-vis" id="step-vis"></div>
+      </div>
+      <div class="step-nav">
+        <button id="btn-prev">Previous</button>
+        <button id="btn-next">Next</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 5. 修复方案 ===== -->
+<section class="block" id="fix">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">05</span><h2>The code changes touch four files</h2></div>
+    <p class="sec-desc">The fix for defect A spans sharding metadata and engine validation, while defect B is contained inside the gradient hook; the change is limited to 413 insertions and 23 deletions.</p>
+    <div class="fix-grid">
+      <div class="fix-card">
+        <div class="fix-file">fusedqkv_utils.py</div>
+        <ul>
+          <li>Adds <b>replicates_kv_block()</b> to detect bigcodetype replicated layouts by scanning class names</li>
+          <li>Class names are derived from <code>FUSED_QKV_TYPE_DICT</code>, so new layouts need zero maintenance; avoids the O(n²) scan caused by stringifying subtrees</li>
+        </ul>
+      </div>
+      <div class="fix-card">
+        <div class="fix-file">auto_tp.py</div>
+        <ul>
+          <li>Replicated layouts: <b>tp_meta overrides the shard count with num_attention_heads</b></li>
+          <li>KV head attributes stay whole and unsharded; <code>num_key_value_groups</code> is recomputed from the local Q shard</li>
+          <li>Falls back to the model's original value when an attribute is missing, remaining compatible with older transformers</li>
+        </ul>
+      </div>
+      <div class="fix-card">
+        <div class="fix-file">engine.py</div>
+        <ul>
+          <li><b>fail fast</b>: when tp &gt; the number of query heads, raise a RuntimeError with a fix suggestion before sharding</li>
+          <li>Non-replicated layouts keep the original warning path, leaving existing behavior unchanged</li>
+        </ul>
+      </div>
+      <div class="fix-card">
+        <div class="fix-file">layers.py</div>
+        <ul>
+          <li>Extracts <b>_sum_replicated_kv_gradient()</b> to choose in-place communication or a staged contiguous copy based on layout</li>
+          <li>Writes the result back into the view autograd consumes and skips empty K/V blocks</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 6. 验证矩阵 ===== -->
+<section class="block" id="validation">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">06</span><h2>Validation matrix and honest limits</h2></div>
+    <p class="sec-desc">Two backends × three versions, cross-validated; the PR description also calls out what is not covered.</p>
+    <table class="matrix">
+      <thead><tr><th style="width:26%">Combination</th><th style="width:20%">master (before fix)</th><th>This PR</th></tr></thead>
+      <tbody>
+        <tr><td>CUDA / transformers 4.44.2</td><td><span class="dot g"></span>Pass (contiguous gradient)</td><td><span class="dot g"></span>Pass; the staging path is a no-op</td></tr>
+        <tr><td>CUDA / transformers 5.20.2</td><td><span class="dot r"></span>SDPA forward error + all-reduce blocked</td><td><span class="dot g"></span>Pass at TP=2 / TP=4</td></tr>
+        <tr><td>NPU / transformers 4.44.2</td><td><span class="dot r"></span>Tensors must be contiguous</td><td><span class="dot g"></span>Pass via the staging branch</td></tr>
+        <tr><td>NPU / transformers 5.19.0</td><td><span class="dot r"></span>Empty shards + non-contiguous gradients</td><td><span class="dot g"></span>Pass at TP=2 / TP=4, Δlogit 1.2e-7</td></tr>
+      </tbody>
+    </table>
+    <div class="caveat">
+      <h3>Known issue: double counting in gradient clipping (tracked in a separate issue, not changed by this PR)</h3>
+      <p>The global norm counts the replicated K/V rows once on every TP rank. At TP=2 the c_attn norm is exactly √2× the single-device value; removing one redundant K/V count reproduces the single-device value exactly.</p>
+      <div class="formula">‖grad‖²_tp = ‖Q‖² + TP · ‖K/V‖²　　⇒　　c_attn norm at TP=2 = √2 × single-device value (measured 1.414×)</div>
+    </div>
+    <p class="note">Also not covered: ZeRO stages 1/2/3 were confirmed in code only, not run on hardware; fp16/autocast is unverified; the generate and past-KV-cache paths are untested; the forward failure with non-MQA (multi_query=False) is a pre-existing issue, #8927.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="mono">PR #8962 · Fix AutoTP multi-query GPTBigCode training at TP &gt; 1　|　Related: issue #8961 · #8927 · PR #8928</div>
+    <p style="margin-top:8px">All tensor shapes and numbers on this page come from the PR description and diff; the diagrams explain layout relationships and are not precise engineering drawings.</p>
+  </div>
+</footer>
+
+<script>
+/* ============ 03 内存格子填充 ============ */
+function fillMem(id,trans){
+  const el=document.getElementById(id);
+  for(let i=0;i<64;i++){
+    const s=document.createElement('span');
+    if(i>=48)s.className='kv';
+    el.appendChild(s);
+  }
+}
+fillMem('mem-cuda');fillMem('mem-npu');
+
+/* ============ 04 工作流 stepper ============ */
+const steps=[
+  {t:'Forward: local Q heads with the full K/V',
+   d:'Each rank runs SDPA with the query rows it owns and the fully replicated K/V block. Attention is computed independently per rank, on identical K/V inputs.',
+   v:()=>`<div class="mini-row"><div class="mini-q" style="flex:1">Q (local shard)</div><div class="mini-kv" style="flex:1.2">full K/V block</div></div>
+          <div class="mini-row"><div class="mini-ghost" style="flex:1">SDPA → local attention output</div></div>`},
+  {t:'c_proj row parallelism: all-reduce to combine',
+   d:'After the output projection, the per-rank attention outputs are summed with a row-parallel all-reduce to produce the full forward result. This is also where an empty-shard rank drags down the whole collective.',
+   v:()=>`<div class="mini-row"><div class="mini-q" style="flex:1">rank 0 output</div><div class="mini-ar">all-reduce</div><div class="mini-ghost" style="flex:1">full output</div></div>
+          <div class="mini-row"><div class="mini-q" style="flex:1">rank 1 output</div><div class="mini-ar" style="visibility:hidden">x</div><div class="mini-ghost" style="flex:1">Σ</div></div>`},
+  {t:'Backward: matmul produces the c_attn gradient',
+   d:'The same matmul backward returns different layouts on the two stacks: CUDA yields a contiguous [out,in] gradient, while torch_npu yields a transposed non-contiguous one; only the actual stride tells them apart.',
+   v:()=>`<div class="mini-row"><div class="mini-q" style="flex:1">Q gradient rows</div><div class="mini-kv" style="flex:1.2">K/V gradient (partial)</div></div>
+          <div class="mini-row"><div class="mini-ghost" style="flex:1">CUDA: stride (32,1) contiguous</div><div class="mini-ghost" style="flex:1.2">NPU: stride (1,32) non-contiguous</div></div>`},
+  {t:'K/V gradient hook: narrow out the replicated rows',
+   d:'The hook clones the fused gradient, then narrows out the K/V rows. Because K/V is replicated, the gradient on each rank comes only from its own Q heads — it is just a partial sum of the full gradient.',
+   v:()=>`<div class="mini-row"><div class="mini-ghost" style="flex:1">Q rows (not part of this collective)</div><div class="mini-kv" style="flex:1.2">narrow → K/V view</div></div>`},
+  {t:'Layout branch: in-place collective or a staged contiguous copy',
+   d:'A contiguous view is all-reduced in place with no extra allocation; a non-contiguous view is first staged with .contiguous() and then handed to HCCL/NCCL. The decision depends on the tensor layout, not the backend name.',
+   v:()=>`<div class="mini-row"><div class="mini-kv" style="flex:1">non-contiguous view</div><div class="mini-ar">.contiguous()</div><div class="mini-kv" style="flex:1">contiguous copy</div><div class="mini-ar">all-reduce</div></div>`},
+  {t:'Write-back keeps K/V updates consistent across ranks',
+   d:'The summed gradient is copied back into the view autograd consumes; every rank receives the same K/V gradient, so the K/V rows stay element-wise identical after the SGD update. Empty blocks are skipped on all ranks at once.',
+   v:()=>`<div class="mini-row"><div class="mini-kv" style="flex:1">copy_ back to the view</div><div class="mini-ar">= full K/V gradient</div></div>
+          <div class="mini-row"><div class="mini-ghost" style="flex:1">K/V rows on every rank: identical</div></div>`}
+];
+let cur=0;
+const bar=document.getElementById('step-bar');
+steps.forEach((s,i)=>{
+  const b=document.createElement('button');
+  b.className='step-tab'+(i===0?' on':'');
+  b.textContent=(i+1)+' '+(i===0?'forward':i===5?'consistent':'');
+  b.addEventListener('click',()=>{cur=i;renderStep()});
+  bar.appendChild(b);
+});
+function renderStep(){
+  document.querySelectorAll('.step-tab').forEach((b,i)=>b.classList.toggle('on',i===cur));
+  document.getElementById('step-title').textContent=steps[cur].t;
+  document.getElementById('step-text').textContent=steps[cur].d;
+  document.getElementById('step-vis').innerHTML=steps[cur].v();
+  document.getElementById('btn-prev').disabled=cur===0;
+  document.getElementById('btn-next').disabled=cur===steps.length-1;
+}
+document.getElementById('btn-prev').addEventListener('click',()=>{if(cur>0){cur--;renderStep()}});
+document.getElementById('btn-next').addEventListener('click',()=>{if(cur<steps.length-1){cur++;renderStep()}});
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'&&cur<steps.length-1){cur++;renderStep()}
+  if(e.key==='ArrowLeft'&&cur>0){cur--;renderStep()}
+});
+renderStep();
+</script>
+
+<!-- lang-switch:start -->
+<a class="lang-switch" href="./gptbigcode-autotp-pr8962.html" hreflang="zh-CN" data-lang="zh" aria-label="切换到中文">中文</a>
+<script src="./lang-switch.js"></script>
+<!-- lang-switch:end -->
+</body>
+</html>

@@ -39,7 +39,15 @@
 ## 中英文切换
 
 `/notes/` 右上角的按钮在中文 / English 之间切换，选择存在 `localStorage.lang`，和首页共用。
-交互页正文目前仍是中文；英文 meta 只影响索引卡片。
+交互页正文也有英文副本，命名规则是 `<slug>.en.html`，与中文版同目录；索引在英文模式下会链接到英文副本。
+
+交互页右下角的切换按钮由共享的 `lang-switch.css` / `lang-switch.js` 提供：
+
+```bash
+node scripts/inject-lang-switch.mjs docs/public/notes/foo.html docs/public/notes/foo.en.html
+```
+
+完整翻译规范见 `docs/.vitepress/notes-i18n.md`。
 
 ## 排序与命名
 

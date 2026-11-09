@@ -1,0 +1,48 @@
+/* 独立交互页的中英文切换按钮（固定右下角，跨主题通用） */
+.lang-switch {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483000;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(12, 18, 24, 0.82);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: #eaf1f6;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.lang-switch:hover {
+  background: rgba(12, 18, 24, 0.94);
+  border-color: rgba(255, 255, 255, 0.55);
+  transform: translateY(-1px);
+}
+
+.lang-switch:focus-visible {
+  outline: 2px solid #7fecad;
+  outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+  .lang-switch {
+    right: 12px;
+    bottom: 12px;
+    padding: 7px 12px;
+  }
+}
+
+@media print {
+  .lang-switch {
+    display: none;
+  }
+}

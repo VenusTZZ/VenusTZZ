@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ascend NPU Inference Fixes, Explained Interactively · DeepSpeed PR #8776</title>
+<meta name="note:pr" content="8776">
+<meta name="note:series" content="DeepSpeed · NPU inference">
+<meta name="note:accent" content="#7fb3ff">
+<meta name="note:tags" content="7 fixes|32/32 tokens|2.4× decode|GQA">
+<meta name="note:description" content="Two silent correctness bugs plus an O(n²) cache-rebuild performance problem. After the fix, 32 generated tokens from Qwen3-4B match the Hugging Face reference exactly, and end-to-end decode at 32k context is 2.4× faster.">
+<meta name="note:title:en" content="Fixing RoPE and KV cache on the Ascend NPU inference path">
+<meta name="note:series:en" content="DeepSpeed · NPU inference">
+<meta name="note:tags:en" content="7 fixes|32/32 tokens|2.4× decode|GQA">
+<meta name="note:description:en" content="Two silent correctness bugs plus an O(n²) cache-rebuild performance problem. After the fix, 32 generated tokens from Qwen3-4B match the Hugging Face reference exactly, and end-to-end decode at 32k context is 2.4× faster.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E141B'/%3E%3Cpath d='M9 22V10l7 7 7-7v12' stroke='%233FB6E8' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://miaoda.feishu.cn/fonts">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://fastly.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+:root{
+  --bg:#0B0F14; --panel:#121A24; --panel2:#0F161E; --line:#22303F; --line2:#2C3D4E;
+  --txt:#E7EEF5; --sub:#96A5B4; --faint:#5F6E7D;
+  --rope:#3FB6E8; --rope-dim:#1C3A4C; --kv:#F2A93B; --kv-dim:#4A3717;
+  --bad:#F0616D; --good:#46C98B; --violet:#9D8DF1;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --sans:'IBM Plex Sans',-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+  --display:'Space Grotesk','IBM Plex Sans',-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+::selection{background:rgba(63,182,232,.28)}
+a{color:var(--rope);text-decoration:none}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+.mono{font-family:var(--mono)}
+
+/* ---------- Top navigation ---------- */
+nav{position:sticky;top:0;z-index:50;background:rgba(11,15,20,.86);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.nav-inner{max-width:1120px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:22px}
+.brand{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.2px;display:flex;align-items:center;gap:9px;white-space:nowrap}
+.brand .chip{width:22px;height:22px}
+.nav-links{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.nav-links a{color:var(--sub);font-size:13.5px;padding:6px 11px;border-radius:7px;font-family:var(--mono);transition:.18s}
+.nav-links a:hover{color:var(--txt);background:var(--panel)}
+.nav-links a .h{color:var(--faint);margin-right:5px}
+
+/* ---------- Hero ---------- */
+header.hero{position:relative;padding:84px 0 64px;border-bottom:1px solid var(--line);overflow:hidden}
+.grid-bg{position:absolute;inset:0;background-image:linear-gradient(rgba(63,182,232,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(63,182,232,.055) 1px,transparent 1px);background-size:46px 46px;mask-image:radial-gradient(ellipse 85% 75% at 50% 0%,#000 35%,transparent 100%)}
+.hero .wrap{position:relative}
+.tagline{font-family:var(--mono);font-size:13px;color:var(--rope);letter-spacing:1px;margin-bottom:20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tagline .pr{border:1px solid var(--line2);padding:3px 9px;border-radius:6px;background:var(--panel)}
+.tagline .merged{color:var(--good)}
+h1{font-family:var(--display);font-size:clamp(30px,5.2vw,52px);line-height:1.12;font-weight:700;letter-spacing:-.5px;max-width:17ch}
+h1 .accent-rope{color:var(--rope)} h1 .accent-kv{color:var(--kv)}
+.hero-sub{color:var(--sub);font-size:16.5px;max-width:62ch;margin-top:22px}
+.hero-sub strong{color:var(--txt);font-weight:600}
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:42px}
+.stat{border:1px solid var(--line);background:linear-gradient(180deg,var(--panel),var(--panel2));border-radius:12px;padding:18px 18px 16px}
+.stat .num{font-family:var(--display);font-size:30px;font-weight:700;line-height:1}
+.stat .num.rope{color:var(--rope)} .stat .num.kv{color:var(--kv)} .stat .num.good{color:var(--good)}
+.stat .lbl{color:var(--sub);font-size:13px;margin-top:9px;line-height:1.45}
+.hero-meta{margin-top:26px;font-family:var(--mono);font-size:12.5px;color:var(--faint);display:flex;gap:18px;flex-wrap:wrap}
+
+/* ---------- Generic section ---------- */
+section{padding:70px 0;border-bottom:1px solid var(--line)}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;flex-wrap:wrap}
+.sec-no{font-family:var(--mono);color:var(--faint);font-size:13px;border:1px solid var(--line2);border-radius:6px;padding:2px 8px}
+h2{font-family:var(--display);font-size:clamp(23px,3.4vw,32px);font-weight:700;letter-spacing:-.3px}
+.sec-desc{color:var(--sub);max-width:70ch;margin:14px 0 34px;font-size:15.5px}
+.sec-desc strong{color:var(--txt)}
+h3{font-family:var(--display);font-size:18px;font-weight:600;margin-bottom:12px}
+h3 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:9px;vertical-align:1px}
+h3 .dot.r{background:var(--rope)} h3 .dot.k{background:var(--kv)}
+p.lead{color:var(--sub);font-size:14.5px;margin-bottom:16px}
+p.lead strong{color:var(--txt)}
+
+/* ---------- Cards / panels ---------- */
+.card{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:24px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.pill{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:5px;letter-spacing:.3px}
+.pill.bad{background:rgba(240,97,109,.14);color:var(--bad);border:1px solid rgba(240,97,109,.32)}
+.pill.good{background:rgba(70,201,139,.13);color:var(--good);border:1px solid rgba(70,201,139,.3)}
+.pill.rope{background:rgba(63,182,232,.12);color:var(--rope);border:1px solid rgba(63,182,232,.3)}
+.pill.kv{background:rgba(242,169,59,.13);color:var(--kv);border:1px solid rgba(242,169,59,.32)}
+
+/* ---------- Phase switch (prompt/decode) ---------- */
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:9px;padding:4px;gap:4px;background:var(--panel2)}
+.seg button{font-family:var(--mono);font-size:13px;color:var(--sub);background:transparent;border:0;padding:8px 18px;border-radius:6px;cursor:pointer;transition:.18s}
+.seg button.active{background:var(--line2);color:var(--txt)}
+.flow-diagram{margin-top:22px}
+.frow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.fnode{flex:1;min-width:120px;border:1px solid var(--line2);border-radius:10px;padding:14px 14px;background:var(--panel2);text-align:center;position:relative}
+.fnode .t{font-family:var(--mono);font-size:12.5px;color:var(--txt);font-weight:600}
+.fnode .d{font-size:12px;color:var(--faint);margin-top:5px;line-height:1.4}
+.farrow{display:flex;align-items:center;padding:0 7px;color:var(--faint)}
+.fnode.hl-rope{border-color:var(--rope);box-shadow:inset 0 0 0 1px rgba(63,182,232,.25)}
+.fnode.hl-kv{border-color:var(--kv);box-shadow:inset 0 0 0 1px rgba(242,169,59,.25)}
+.phase-note{margin-top:18px;border-left:3px solid var(--line2);padding:4px 0 4px 16px;color:var(--sub);font-size:14px}
+.phase-note b{color:var(--txt)}
+
+/* ---------- Shared controls ---------- */
+input[type=range]{width:100%;height:4px;-webkit-appearance:none;background:var(--line2);border-radius:4px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--rope);cursor:pointer;border:3px solid var(--bg);box-shadow:0 0 0 1px var(--rope)}
+input[type=range].kv::-webkit-slider-thumb{background:var(--kv);box-shadow:0 0 0 1px var(--kv)}
+.btn{font-family:var(--mono);font-size:13px;border:1px solid var(--line2);background:var(--panel2);color:var(--txt);padding:9px 16px;border-radius:8px;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;gap:8px}
+.btn:hover{border-color:var(--faint);background:var(--line)}
+.btn.primary{border-color:rgba(63,182,232,.5);color:var(--rope)}
+.btn.primary:hover{background:rgba(63,182,232,.1)}
+.btn.kv{border-color:rgba(242,169,59,.5);color:var(--kv)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.toggle-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.code-inline{font-family:var(--mono);font-size:12.5px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--rope)}
+.code-inline.k{color:var(--kv)}
+
+/* ---------- RoPE rotation demo ---------- */
+.canvas-box{position:relative;background:var(--panel2);border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.canvas-box canvas{display:block;width:100%}
+.ctrl-block{margin-top:16px}
+.ctrl-block .lab-row{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:var(--sub);margin-bottom:9px}
+.ctrl-block .lab-row b{color:var(--rope);font-weight:600}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+.readout .cell{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:11px 12px}
+.readout .cell .k{font-size:11.5px;color:var(--faint);font-family:var(--mono)}
+.readout .cell .v{font-family:var(--mono);font-size:15px;margin-top:4px;color:var(--txt)}
+.switch-fix{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:13px;color:var(--sub);cursor:pointer;user-select:none}
+.switch-fix input{accent-color:var(--bad);width:16px;height:16px;cursor:pointer}
+.bugcallout{border-radius:9px;padding:12px 14px;font-size:13.5px;line-height:1.55;margin-top:14px}
+.bugcallout.bad{background:rgba(240,97,109,.09);border:1px solid rgba(240,97,109,.3);color:#F4A3AA}
+.bugcallout.good{background:rgba(70,201,139,.08);border:1px solid rgba(70,201,139,.28);color:#8EDDB4}
+.bugcallout b{font-family:var(--mono)}
+
+/* Pairing visualization */
+.pair-svg{width:100%;height:auto;display:block}
+.pair-cell{fill:var(--panel2);stroke:var(--line2);stroke-width:1.4}
+.pair-cell.lit{fill:var(--rope-dim);stroke:var(--rope)}
+.pair-text{fill:var(--sub);font-family:var(--mono);font-size:13px;text-anchor:middle;dominant-baseline:central}
+.pair-text.lit{fill:var(--rope)}
+.pair-line{fill:none;stroke-width:2;opacity:0}
+.pair-line.show{opacity:1}
+.pair-line.il{stroke:var(--rope)} .pair-line.hf{stroke:var(--violet)}
+
+/* Bug list */
+.buglist{display:flex;flex-direction:column;gap:12px}
+.bugitem{border:1px solid var(--line);border-radius:11px;padding:16px 18px;background:var(--panel2);display:flex;gap:15px}
+.bugitem .idx{font-family:var(--display);font-size:22px;font-weight:700;color:var(--bad);line-height:1.2;min-width:34px}
+.bugitem .body-txt{font-size:14px;color:var(--sub)}
+.bugitem .body-txt b{color:var(--txt);font-weight:600;display:block;margin-bottom:3px;font-size:14.5px}
+.bugitem.fixed{border-color:rgba(70,201,139,.25)}
+.bugitem.fixed .idx{color:var(--good)}
+
+/* ---------- KV animation ---------- */
+.kv-stage{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:22px;min-height:300px}
+.kv-buf{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+.kv-slot{width:34px;height:34px;border:1.5px dashed var(--line2);border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:var(--faint);transition:.25s;position:relative}
+.kv-slot.filled{border-style:solid;border-color:rgba(242,169,59,.55);background:rgba(242,169,59,.14);color:var(--kv)}
+.kv-slot.newwrite{border-color:var(--kv);background:var(--kv);color:#1A1206;transform:scale(1.12);box-shadow:0 0 16px rgba(242,169,59,.45)}
+.kv-slot.copy{border-color:var(--bad);background:rgba(240,97,109,.18);color:var(--bad)}
+.kv-slot.grow{border-color:var(--violet);border-style:solid}
+.kv-legend{display:flex;gap:18px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--sub);margin-top:8px}
+.kv-legend span{display:flex;align-items:center;gap:7px}
+.kv-legend i{width:13px;height:13px;border-radius:4px;display:inline-block}
+.meter{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+.meter .m{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:13px 15px}
+.meter .m .k{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+.meter .m .v{font-family:var(--mono);font-size:19px;margin-top:5px;font-weight:600}
+.meter .m .v.bad{color:var(--bad)} .meter .m .v.good{color:var(--good)}
+
+/* ---------- Workflow stepper ---------- */
+.stepper{display:flex;flex-direction:column;gap:0;margin-top:8px}
+.step{display:grid;grid-template-columns:52px 1fr;gap:18px;position:relative;padding-bottom:26px}
+.step:last-child{padding-bottom:0}
+.step::before{content:'';position:absolute;left:25px;top:34px;bottom:0;width:2px;background:var(--line2)}
+.step:last-child::before{display:none}
+.step .ball{width:52px;height:52px;border-radius:50%;border:1.5px solid var(--line2);background:var(--panel2);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;color:var(--faint);font-size:17px;z-index:1;transition:.25s}
+.step.active .ball{border-color:var(--rope);color:var(--rope);box-shadow:0 0 0 5px rgba(63,182,232,.12)}
+.step.done .ball{border-color:var(--good);color:var(--good);background:rgba(70,201,139,.08)}
+.step .stxt h4{font-family:var(--display);font-size:16px;font-weight:600;margin-bottom:5px}
+.step .stxt p{color:var(--sub);font-size:14px}
+.step .stxt .mono{font-size:12.5px;color:var(--faint);margin-top:6px;display:block}
+.step.active .stxt h4{color:var(--rope)}
+.step-ctrl{display:flex;gap:12px;align-items:center;margin-top:26px;flex-wrap:wrap}
+.step-count{font-family:var(--mono);font-size:13px;color:var(--sub)}
+
+/* ---------- Charts / results ---------- */
+.chart{width:100%;height:340px}
+.chart-card{padding:20px 20px 10px}
+.verify{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.verify .vbox{border:1px solid var(--line);border-radius:11px;padding:20px;background:var(--panel2)}
+.verify .vbox .big{font-family:var(--display);font-size:26px;font-weight:700}
+.verify .vbox .k{font-size:13.5px;color:var(--sub);margin-top:6px}
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}
+.tbl th,.tbl td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line)}
+.tbl th{font-family:var(--mono);font-size:12px;color:var(--faint);font-weight:500}
+.tbl td.mono{font-family:var(--mono)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .sp{color:var(--good);font-family:var(--mono);font-weight:600}
+footer{padding:40px 0 54px;color:var(--faint);font-size:13px;font-family:var(--mono)}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media (max-width:860px){
+  .hero-stats{grid-template-columns:repeat(2,1fr)}
+  .grid2,.grid3,.verify{grid-template-columns:1fr}
+  .nav-links{display:none}
+  .farrow{transform:rotate(90deg);padding:6px 0;width:100%;justify-content:center}
+  .frow{flex-direction:column}
+  .meter{grid-template-columns:1fr}
+}
+</style>
+<link rel="stylesheet" href="./lang-switch.css">
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <div class="brand">
+      <svg class="chip" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#121A24"/><path d="M9 22V10l7 7 7-7v12" stroke="#3FB6E8" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      NPU inference fixes · PR #8776
+    </div>
+    <div class="nav-links">
+      <a href="#background"><span class="h">01</span>Background</a>
+      <a href="#rope"><span class="h">02</span>RoPE</a>
+      <a href="#kv"><span class="h">03</span>KV Cache</a>
+      <a href="#workflow"><span class="h">04</span>Workflow</a>
+      <a href="#results"><span class="h">05</span>Results</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="wrap">
+    <div class="tagline">
+      <span class="pr">deepspeedai/DeepSpeed #8776</span>
+      <span class="merged">● Merged · 2026-10-16</span>
+      <span>op_builder/npu/inference.py</span>
+    </div>
+    <h1>Fixing <span class="accent-rope">rotary position embedding</span> and <span class="accent-kv">KV cache</span> on the Ascend NPU inference path</h1>
+    <p class="hero-sub">Two <strong>silent correctness bugs</strong> — the code runs without errors, yet every token gets the wrong positional rotation — compounded by an O(n²) cache-rebuild performance problem. After the fix, 32 generated tokens from the real Qwen3-4B match the Hugging Face reference exactly.</p>
+    <div class="hero-stats">
+      <div class="stat"><div class="num">7</div><div class="lbl">Defects located and fixed (RoPE 5 + KV 2)</div></div>
+      <div class="stat"><div class="num good">32/32</div><div class="lbl">Generated tokens match the HF reference</div></div>
+      <div class="stat"><div class="num kv">2.4×</div><div class="lbl">Overall decode speedup at 32k context</div></div>
+      <div class="stat"><div class="num kv">10.6×</div><div class="lbl">KV store path speedup alone (n=32k)</div></div>
+    </div>
+    <div class="hero-meta">
+      <span>Hardware 2× Ascend 910B4 (64GB HBM)</span><span>torch_npu 2.10</span><span>CANN 8.5.1</span><span>Model Qwen3-4B · 36 layers · GQA 8/32 · fp16</span>
+    </div>
+  </div>
+</header>
+
+<!-- ===== View: background ===== -->
+<section id="background">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">01</span><h2>First, understand the two inference phases</h2></div>
+    <p class="sec-desc">Autoregressive LLM inference runs in two stages: the <strong>prompt phase</strong> processes the entire input at once, while the <strong>decode phase</strong> generates one new token per step, in a loop. This PR's bugs happen to hide in each of the two. Toggle below to inspect both data paths.</p>
+    <div class="seg" id="phaseSeg">
+      <button class="active" data-phase="prompt">Prompt phase (seq_len &gt; 1)</button>
+      <button data-phase="decode">Decode phase (seq_len = 1)</button>
+    </div>
+    <div class="flow-diagram card" style="margin-top:20px">
+      <div class="frow" id="phaseFlow"></div>
+      <div class="phase-note" id="phaseNote"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== View: RoPE ===== -->
+<section id="rope">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">02</span><h2>RoPE: a different rotation for every position</h2></div>
+    <p class="sec-desc">Rotary position embedding groups a Q/K vector into adjacent element pairs, treats each pair as a 2D vector, and rotates it by an <strong>angle that grows with position</strong>. The further along the sequence, the more it turns — which is exactly how the model knows which token it is on. The demo below uses frequency pair 0, where angle (in radians) ≈ position × inverse frequency.</p>
+
+    <div class="grid2">
+      <div class="card">
+        <h3><span class="dot r"></span>Interactive rotation demo</h3>
+        <div class="canvas-box"><canvas id="ropeCanvas" width="520" height="380"></canvas></div>
+        <div class="ctrl-block">
+          <div class="lab-row"><span>token position</span><b id="posVal">0</b></div>
+          <input type="range" id="posSlider" min="0" max="100" value="0" step="1">
+        </div>
+        <div class="ctrl-block">
+          <label class="switch-fix"><input type="checkbox" id="bugToggle"> Simulate pre-fix: seq_offset is ignored</label>
+        </div>
+        <div class="readout">
+          <div class="cell"><div class="k">Actual rotation angle θ</div><div class="v" id="outAngle">0.00 rad</div></div>
+          <div class="cell"><div class="k">cos θ</div><div class="v" id="outCos">1.000</div></div>
+          <div class="cell"><div class="k">sin θ</div><div class="v" id="outSin">0.000</div></div>
+        </div>
+        <div class="bugcallout good" id="ropeCallout">After the fix: the angle tracks position correctly, so each decode token gets its own absolute position.</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="card">
+          <h3><span class="dot r"></span>Element pairing: the two layouts are not interchangeable</h3>
+          <p class="lead">The cos/sin table layout decides <strong>which two elements form a rotation pair</strong>. If the table is interleaved but rotation uses split-half mode, the pairs are misaligned.</p>
+          <div class="seg" id="pairSeg" style="margin-bottom:6px">
+            <button class="active" data-pair="il">interleave (adjacent pairs)</button>
+            <button data-pair="hf">rotate_half (split-half)</button>
+          </div>
+          <svg class="pair-svg" viewBox="0 0 460 170" id="pairSvg" aria-label="Element pairing diagram"></svg>
+          <p class="lead" id="pairNote" style="margin-top:10px;margin-bottom:0"></p>
+        </div>
+        <div class="card">
+          <h3><span class="dot r"></span>Inverse-frequency cache</h3>
+          <p class="lead" style="margin-bottom:10px">Inverse frequencies depend only on <span class="code-inline">rotary_dim</span> and <span class="code-inline">rope_theta</span>, never on sequence length. The old code recomputed the whole pow chain in float64 and did an H2D copy on every forward; the new code caches fp32 values keyed by <span class="code-inline">(rotary_dim, theta, device)</span> and per step only does arange+offset, the outer product, and sin/cos.</p>
+          <div class="toggle-row"><span class="pill bad">Old: float64, recomputed every step</span><span class="pill good">New: fp32 cache · 1.3× faster</span></div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin:38px 0 16px"><span class="dot r"></span>The 5 RoPE-path problems and their fixes</h3>
+    <div class="buglist">
+      <div class="bugitem"><div class="idx">1</div><div class="body-txt"><b>Decode rotation position is always 0</b><span class="code-inline">seq_offset</span> was accepted but never used, so every generated token rotated by position 0. Proof: offset 0 and offset 100 produce identical output.<br><span class="pill good" style="margin-top:8px">Fix: position is driven by the KV buffer row count kv_len — a single source of truth</span></div></div>
+      <div class="bugitem"><div class="idx">2</div><div class="body-txt"><b>Prompt-phase element pairing is scrambled</b>The call to npu_rotary_mul omitted rotary_mode, so it defaulted to half pairing while cos/sin was the interleaved table from repeat_interleave(2).<br><span class="pill good" style="margin-top:8px">Fix: pass 'interleave' explicitly to match the table layout</span></div></div>
+      <div class="bugitem"><div class="idx">3</div><div class="body-txt"><b>advance_tokens() is missing</b>The CUDA csrc increments the token counter after the last layer; the NPU side did not, so soft_len stayed at the prompt length.<br><span class="pill good" style="margin-top:8px">Fix: call advance_tokens() after the last layer's forward</span></div></div>
+      <div class="bugitem"><div class="idx">4</div><div class="body-txt"><b>The rotate_half branch is entirely missing</b>HF-style split-half rotation (Llama/GPT-NeoX/InternLM family) silently did nothing on NPU, leaving RoPE a no-op.<br><span class="pill good" style="margin-top:8px">Fix: add the split-half branch, pairing j with j+dim/2 and reusing the same inv_freq</span></div></div>
+      <div class="bugitem"><div class="idx">5</div><div class="body-txt"><b>Angles recomputed on every forward</b>A full float64 pow chain plus an H2D copy every step, with no caching.<br><span class="pill good" style="margin-top:8px">Fix: cache fp32 inv_freq, matching the v2 inference path</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== View: KV Cache ===== -->
+<section id="kv">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">03</span><h2>KV cache: from O(n²) rebuilds to O(1) single-row writes</h2></div>
+    <p class="sec-desc">Attention needs the K and V of every token so far. The old code called <span class="code-inline k">torch.cat</span> for each generated token, reallocating and copying the entire history, then made a full contiguous copy into BSH layout. The new code preallocates a buffer in the layout the attention kernel consumes, so decode writes a single row and reads are zero-copy. Step through it to see the difference.</p>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="toggle-row" style="justify-content:space-between">
+          <h3 style="margin:0"><span class="dot k"></span>Cache write animation</h3>
+          <div class="seg" id="kvSeg">
+            <button data-kv="old">Old · torch.cat</button>
+            <button class="active" data-kv="new">New · preallocated</button>
+          </div>
+        </div>
+        <div class="kv-stage" style="margin-top:16px">
+          <div class="kv-buf" id="kvBuf"></div>
+          <div class="kv-legend">
+            <span><i style="background:rgba(242,169,59,.4);border:1px solid var(--kv)"></i>Cached</span>
+            <span><i style="background:var(--kv)"></i>Written this step</span>
+            <span><i style="background:rgba(240,97,109,.4);border:1px solid var(--bad)"></i>Full copy</span>
+            <span><i style="background:rgba(157,141,241,.35);border:1px solid var(--violet)"></i>Geometric growth</span>
+          </div>
+          <div class="meter">
+            <div class="m"><div class="k">Rows copied this step</div><div class="v" id="mStep">0</div></div>
+            <div class="m"><div class="k">Cumulative rows copied (whole sequence)</div><div class="v" id="mTotal">0</div></div>
+          </div>
+        </div>
+        <div class="toggle-row" style="margin-top:16px">
+          <button class="btn kv" id="kvNext">Generate next token</button>
+          <button class="btn" id="kvReset">Reset</button>
+        </div>
+        <p class="lead" id="kvNote" style="margin-top:14px;margin-bottom:0"></p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="card">
+          <h3><span class="dot k"></span>Capacity strategy: geometric growth</h3>
+          <p class="lead">The CUDA op allocates once up front based on max_out_tokens; the NPU op is a static function with no config at construction time, and filling device memory for long contexts up front costs far too much. So it grows on demand: double the capacity when full, amortizing the copy to O(1); the prompt phase reserves <span class="code-inline k">min(2P, P+2048)</span> headroom so the first decode step does not trigger a full copy. Reuse validates shape/dtype/device, not just length.</p>
+        </div>
+        <div class="card">
+          <h3><span class="dot k"></span>GQA reshape uses the wrong head count</h3>
+          <p class="lead">K/V carry the <strong>KV head count</strong>, not the query head count. The old code reshaped with <span class="code-inline k">heads</span>; under GQA (num_kv &lt; heads), an element count that happens to divide evenly raises no error and silently scrambles the head dimension.</p>
+          <div class="toggle-row"><span class="pill bad">Old: reshape(..., heads)</span><span class="pill good">New: reshape(..., num_kv)</span></div>
+        </div>
+        <div class="card">
+          <h3><span class="dot k"></span>Layout alignment</h3>
+          <p class="lead" style="margin-bottom:10px">The buffer stores <span class="code-inline k">[bsz, cap, num_kv_heads × head_dim]</span> (BSH) directly, and attention reads the <span class="code-inline k">[:, :kv_len]</span> zero-copy view; callers get back a transposed <span class="code-inline k">[bsz, heads, len, head_dim]</span> view with the same semantics as the CUDA workspace tensor.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== View: workflow ===== -->
+<section id="workflow">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">04</span><h2>The full workflow of one decode token</h2></div>
+    <p class="sec-desc">Step through the six stages between a new token entering the op and its result being written.</p>
+    <div class="card">
+      <div class="stepper" id="stepper"></div>
+      <div class="step-ctrl">
+        <button class="btn primary" id="wfPlay">Auto play</button>
+        <button class="btn" id="wfNext">Next step</button>
+        <button class="btn" id="wfReset">Reset</button>
+        <span class="step-count" id="wfCount">0 / 6</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== View: results ===== -->
+<section id="results">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-no">05</span><h2>Verification: correctness and performance</h2></div>
+    <p class="sec-desc">Correctness is checked token by token against Hugging Face on the real Qwen3-4B; performance is measured A/B on 2×910B4 (3 warmup runs, median of 7, with old and new order alternating).</p>
+
+    <div class="verify" style="margin-bottom:18px">
+      <div class="vbox"><div class="big" style="color:var(--good)">32 / 32</div><div class="k">Generated tokens match the HF reference exactly</div></div>
+      <div class="vbox"><div class="big mono">2.3e-2 / 7.8e-2</div><div class="k">Max logit difference (prompt / 32 tokens), within fp16 kernel noise</div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card chart-card">
+        <h3><span class="dot k"></span>KV store path time (per decode step)</h3>
+        <div class="chart" id="chartKV"></div>
+      </div>
+      <div class="card chart-card">
+        <h3><span class="dot k"></span>Full decode step time (including fusion_attention)</h3>
+        <div class="chart" id="chartFull"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h3><span class="dot r"></span>RoPE function A/B (prompt 1024 / decode 1, fp16)</h3>
+      <table class="tbl">
+        <thead><tr><th>Phase</th><th>Old: float64, recomputed every step</th><th>New: cached inv_freq (fp32)</th><th>Speedup</th></tr></thead>
+        <tbody>
+          <tr><td>prompt</td><td class="mono">1.163 ms</td><td class="mono">0.896 ms</td><td class="sp">1.3×</td></tr>
+          <tr><td>decode</td><td class="mono">1.095 ms</td><td class="mono">0.819 ms</td><td class="sp">1.3×</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>DeepSpeed PR #8776 · NPU RoPE correctness & KV preallocation</span>
+    <span>Data source: github.com/deepspeedai/DeepSpeed/pull/8776</span>
+  </div>
+</footer>
+
+<script>
+/* ============================================================
+ * 01 Background: prompt / decode phase flow
+ * ============================================================ */
+const PHASE_DATA = {
+  prompt:{nodes:[
+    ['Full input','seq_len tokens enter at once',''],
+    ['RoPE rotation','each position uses its own angle (fix point: interleave pairing)','hl-rope'],
+    ['Write full KV','seq_len rows written at once','hl-kv'],
+    ['Causal attention','computed in parallel with a triangular mask',''],
+    ['Emit first token','reset_tokens(seq_len)','']
+  ],note:'<b>Prompt phase:</b> the whole input is processed in parallel. The pairing bug hides here — an interleaved cos/sin table rotated in half-split mode.'},
+  decode:{nodes:[
+    ['Single new token','seq_len = 1',''],
+    ['RoPE rotation','the angle comes from seq_offset = kv_len (fix point: it was always 0)','hl-rope'],
+    ['Single-row KV write','one row written at kv_len, O(1)','hl-kv'],
+    ['Attention reads history','zero-copy [:, :kv_len] view',''],
+    ['advance_tokens','counter +1 after the last layer, then on to the next token','']
+  ],note:'<b>Decode phase:</b> one token per step, on repeat. The always-zero position bug and the O(n²) torch.cat rebuild hide here.'}
+};
+function renderPhase(phase){
+  const d=PHASE_DATA[phase];
+  const flow=document.getElementById('phaseFlow');
+  flow.innerHTML=d.nodes.map((n,i)=>
+    (i?'<div class="farrow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>':'')
+    +'<div class="fnode '+n[2]+'"><div class="t">'+n[0]+'</div><div class="d">'+n[1]+'</div></div>'
+  ).join('');
+  document.getElementById('phaseNote').innerHTML=d.note;
+}
+document.getElementById('phaseSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#phaseSeg button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');renderPhase(b.dataset.phase);
+});
+renderPhase('prompt');
+
+/* ============================================================
+ * 02 RoPE canvas rotation demo
+ * ============================================================ */
+const cv=document.getElementById('ropeCanvas'),ctx=cv.getContext('2d');
+const posSlider=document.getElementById('posSlider'),bugToggle=document.getElementById('bugToggle');
+function setupCanvas(){
+  const dpr=window.devicePixelRatio||1,rect=cv.getBoundingClientRect();
+  cv.width=rect.width*dpr;cv.height=380*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+function drawRope(){
+  const w=cv.getBoundingClientRect().width,h=380,cx=w/2,cy=h/2+6,R=118;
+  ctx.clearRect(0,0,w,h);
+  // Grid
+  ctx.strokeStyle='rgba(34,48,63,.7)';ctx.lineWidth=1;
+  for(let g=-3;g<=3;g++){ctx.beginPath();ctx.moveTo(cx+g*42,cy-R-20);ctx.lineTo(cx+g*42,cy+R+20);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-R-20,cy+g*42);ctx.lineTo(cx+R+20,cy+g*42);ctx.stroke();}
+  // Axes
+  ctx.strokeStyle='#2C3D4E';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(cx-R-24,cy);ctx.lineTo(cx+R+24,cy);ctx.moveTo(cx,cy-R-24);ctx.lineTo(cx,cy+R+24);ctx.stroke();
+  // Unit circle
+  ctx.strokeStyle='rgba(63,182,232,.28)';ctx.setLineDash([5,5]);ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.stroke();ctx.setLineDash([]);
+  const pos=+posSlider.value;
+  const thetaReal=bugToggle.checked?0:pos;          // pair 0 has inv_freq = 1, so θ = position
+  const drawAng=thetaReal%(2*Math.PI);
+  const baseAng=0.55;                                // direction of the original vector
+  const baseVec=[Math.cos(baseAng),-Math.sin(baseAng)];
+  // Original vector (gray)
+  drawVec(cx,cy,baseVec[0]*R,baseVec[1]*R,'#5F6E7D',2.5);
+  // Rotated vector (cyan)
+  const ax=Math.cos(drawAng),ay=Math.sin(drawAng);
+  const rx=baseVec[0]*ax-baseVec[1]*ay, ry=baseVec[0]*ay+baseVec[1]*ax;
+  drawVec(cx,cy,rx*R,ry*R,'#3FB6E8',3);
+  ctx.fillStyle='#3FB6E8';ctx.beginPath();ctx.arc(cx+rx*R,cy+ry*R,4.5,0,7);ctx.fill();
+  // Angle arc
+  ctx.strokeStyle=bugToggle.checked?'#F0616D':'#F2A93B';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(cx,cy,34,baseAng-Math.PI/2,baseAng-Math.PI/2+drawAng,drawAng>Math.PI);ctx.stroke();
+  // Readouts
+  document.getElementById('posVal').textContent=pos;
+  document.getElementById('outAngle').textContent=thetaReal.toFixed(2)+' rad';
+  document.getElementById('outCos').textContent=Math.cos(thetaReal).toFixed(3);
+  document.getElementById('outSin').textContent=Math.sin(thetaReal).toFixed(3);
+  const co=document.getElementById('ropeCallout');
+  if(bugToggle.checked){co.className='bugcallout bad';co.innerHTML='<b>Before the fix:</b> seq_offset is ignored, so θ stays 0 whatever position is; every decode token shares the rotation of position 0.';}
+  else{co.className='bugcallout good';co.innerHTML='After the fix: the angle tracks position correctly (θ = position × inv_freq), so each decode token gets its own absolute position.';}
+}
+function drawVec(x,y,dx,dy,color,lw){
+  ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+dx,y+dy);ctx.stroke();
+  const a=Math.atan2(dy,dx);ctx.fillStyle=color;
+  ctx.beginPath();ctx.moveTo(x+dx,y+dy);ctx.lineTo(x+dx-9*Math.cos(a-.4),y+dy-9*Math.sin(a-.4));
+  ctx.lineTo(x+dx-9*Math.cos(a+.4),y+dy-9*Math.sin(a+.4));ctx.closePath();ctx.fill();
+}
+posSlider.addEventListener('input',drawRope);
+bugToggle.addEventListener('change',drawRope);
+window.addEventListener('resize',()=>{setupCanvas();drawRope();});
+
+/* ============================================================
+ * 03 Element pairing SVG
+ * ============================================================ */
+const pairSvg=document.getElementById('pairSvg');
+const N=8,slotW=44,gap=10,x0=18,y=58;
+function slotX(i){return x0+i*(slotW+gap);}
+function buildPairSvg(){
+  let h='';
+  for(let i=0;i<N;i++){
+    h+='<rect class="pair-cell" data-i="'+i+'" x="'+slotX(i)+'" y="'+y+'" width="'+slotW+'" height="40" rx="8"/>';
+    h+='<text class="pair-text" data-i="'+i+'" x="'+slotX(i)+slotW/2+'" y="'+y+20+'">x'+i+'</text>';
+  }
+  // interleave links (top)
+  [[0,1],[2,3],[4,5],[6,7]].forEach(p=>{
+    h+='<path class="pair-line il" data-pair="il" d="M'+(slotX(p[0])+slotW/2)+','+(y-4)+' Q'+(slotX(p[0])+slotW/2+gap/2+slotW/2)+','+(y-26)+' '+(slotX(p[1])+slotW/2)+','+(y-4)+'"/>';
+  });
+  // half links (bottom)
+  [[0,4],[1,5],[2,6],[3,7]].forEach(p=>{
+    h+='<path class="pair-line hf" data-pair="hf" d="M'+(slotX(p[0])+slotW/2)+','+(y+44)+' Q'+(slotX(p[0])+slotW/2+(slotX(p[1])-slotX(p[0]))/2)+','+(y+78)+' '+(slotX(p[1])+slotW/2)+','+(y+44)+'"/>';
+  });
+  pairSvg.innerHTML=h;
+}
+function renderPair(mode){
+  pairSvg.querySelectorAll('.pair-line').forEach(l=>l.classList.toggle('show',l.dataset.pair===mode));
+  const lit=mode==='il'?[[0,1],[2,3],[4,5],[6,7]]:[[0,4],[1,5],[2,6],[3,7]];
+  const litSet=new Set(lit.flat());
+  pairSvg.querySelectorAll('.pair-cell,.pair-text').forEach(el=>el.classList.toggle('lit',litSet.has(+el.dataset.i)));
+  document.getElementById('pairNote').innerHTML=mode==='il'
+    ?'<b style="color:var(--rope)">interleave:</b> adjacent elements pair up — (x0,x1)(x2,x3)… — matching the interleaved table from repeat_interleave(2); npu_rotary_mul is called with "interleave".'
+    :'<b style="color:var(--violet)">rotate_half:</b> element j pairs with element j+dim/2 — (x0,x4)(x1,x5)… — cos/sin are copied side by side, matching the HF split-half convention.';
+}
+document.getElementById('pairSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#pairSeg button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');renderPair(b.dataset.pair);
+});
+buildPairSvg();renderPair('il');
+
+/* ============================================================
+ * 04 KV cache animation
+ * ============================================================ */
+const PROMPT_LEN=8;
+const kvState={mode:'new',len:PROMPT_LEN,cap:16,total:0,growFlag:false};
+const kvBuf=document.getElementById('kvBuf');
+function renderKV(anim){
+  const show=kvState.mode==='new'?kvState.cap:kvState.len+1;
+  let h='';
+  for(let i=0;i<show;i++){
+    let cls='kv-slot';
+    if(i<kvState.len)cls+=' filled';
+    if(anim&&i===kvState.len)cls+=' newwrite';
+    if(anim&&kvState.mode==='old'&&i<kvState.len)cls+=' copy';
+    if(kvState.growFlag&&i>=kvState.len&&kvState.mode==='new')cls+=' grow';
+    h+='<div class="'+cls+'">'+(i<kvState.len?i:'')+'</div>';
+  }
+  kvBuf.innerHTML=h;
+  document.getElementById('mStep').textContent=anim?(kvState.mode==='old'?kvState.len:1):'0';
+  document.getElementById('mTotal').textContent=kvState.total;
+  document.getElementById('kvNote').innerHTML=kvState.mode==='old'
+    ?'Old path calls torch.cat every step: it reallocates and copies all '+kvState.len+' rows of history — O(n) per step, O(n²) for the whole sequence.'
+    :'New path preallocates the buffer (current capacity '+kvState.cap+'): writes only row '+kvState.len+', O(1) per step, with capacity doubling amortized to O(1).';
+}
+document.getElementById('kvSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#kvSeg button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');kvState.mode=b.dataset.kv;kvReset();
+});
+document.getElementById('kvNext').addEventListener('click',()=>{
+  if(kvState.mode==='old'){
+    kvState.total+=kvState.len;            // copy the whole history
+    renderKV(true);
+    setTimeout(()=>{kvState.len++;renderKV(false);},520);
+  }else{
+    kvState.growFlag=false;
+    if(kvState.len===kvState.cap){kvState.cap*=2;kvState.growFlag=true;renderKV(false);
+      setTimeout(()=>{kvState.growFlag=false;doNewWrite();},480);}
+    else doNewWrite();
+  }
+});
+function doNewWrite(){
+  kvState.total+=1;renderKV(true);
+  setTimeout(()=>{kvState.len++;renderKV(false);},480);
+}
+function kvReset(){
+  kvState.len=PROMPT_LEN;kvState.cap=16;kvState.total=0;kvState.growFlag=false;renderKV(false);
+}
+document.getElementById('kvReset').addEventListener('click',kvReset);
+kvReset();
+
+/* ============================================================
+ * 05 Workflow stepper
+ * ============================================================ */
+const STEPS=[
+  ['Receive fused QKV, split by GQA','slice Q, K, V by heads and num_kv; K/V carry only num_kv groups','hidden = heads × head_dim'],
+  ['Determine the absolute decode position','seq_offset is just the buffer row count kv_len, the 0-based position of this token','seq_offset = kv_len'],
+  ['Read cached inv_freq, derive the angles','fp32 inverse frequencies are computed once; arange+offset, outer product, then sin/cos','outer(seq_id, inv_freq)'],
+  ['Apply the RoPE rotation','interleave or rotate_half mode, matching the cos/sin table layout','npu_rotary_mul(...)'],
+  ['Write one row into the preallocated KV buffer','one row at kv_len, capacity grows geometrically, attention reads zero-copy','k_buf[:, kv_len:kv_len+1]'],
+  ['fusion_attention and the counter advance','npu_fusion_attention reads [:, :kv_len]; advance_tokens after the last layer','if layer_id == num_layers-1']
+];
+let wfCur=0,wfTimer=null;
+const stepper=document.getElementById('stepper');
+function buildStepper(){
+  stepper.innerHTML=STEPS.map((s,i)=>'<div class="step" data-i="'+i+'"><div class="ball">'+(i+1)+'</div><div class="stxt"><h4>'+s[0]+'</h4><p>'+s[1]+'</p><span class="mono">'+s[2]+'</span></div></div>').join('');
+}
+function renderWF(){
+  stepper.querySelectorAll('.step').forEach((el,i)=>{
+    el.classList.toggle('active',i===wfCur);
+    el.classList.toggle('done',i<wfCur);
+  });
+  document.getElementById('wfCount').textContent=wfCur+' / 6';
+}
+function wfNext(){if(wfCur<6){wfCur++;renderWF();}else{stopPlay();}}
+function stopPlay(){if(wfTimer){clearInterval(wfTimer);wfTimer=null;document.getElementById('wfPlay').textContent='Auto play';}}
+document.getElementById('wfNext').addEventListener('click',wfNext);
+document.getElementById('wfReset').addEventListener('click',()=>{stopPlay();wfCur=0;renderWF();});
+document.getElementById('wfPlay').addEventListener('click',e=>{
+  if(wfTimer){stopPlay();return;}
+  if(wfCur===6){wfCur=0;renderWF();}
+  e.target.textContent='Pause';
+  wfTimer=setInterval(()=>{wfNext();if(wfCur===6)stopPlay();},1500);
+});
+buildStepper();renderWF();
+
+/* ============================================================
+ * 06 ECharts performance charts
+ * ============================================================ */
+const axisStyle={axisLine:{lineStyle:{color:'#2C3D4E'}},axisLabel:{color:'#96A5B4',fontFamily:'IBM Plex Mono',fontSize:11},
+  splitLine:{lineStyle:{color:'rgba(44,61,78,.45)'}}};
+function baseOpt(){return{
+  tooltip:{trigger:'axis',backgroundColor:'#121A24',borderColor:'#2C3D4E',textStyle:{color:'#E7EEF5',fontFamily:'IBM Plex Mono',fontSize:12}},
+  legend:{textStyle:{color:'#96A5B4',fontSize:12},top:0,itemWidth:14,itemHeight:9},
+  grid:{left:48,right:18,top:42,bottom:36},
+  xAxis:{type:'category',...axisStyle},
+  yAxis:{type:'value',name:'ms',nameTextStyle:{color:'#5F6E7D'},...axisStyle}
+};}
+const kvLen=['1024','2048','4096','8192','16384','32768'];
+const c1=echarts.init(document.getElementById('chartKV'));
+const o1=baseOpt();
+o1.xAxis.data=kvLen;
+o1.series=[
+  {name:'Old torch.cat',type:'line',data:[0.183,0.175,0.176,0.498,0.952,1.863],smooth:true,symbolSize:8,lineStyle:{color:'#F0616D',width:2.5},itemStyle:{color:'#F0616D'}},
+  {name:'New preallocated',type:'line',data:[0.171,0.164,0.164,0.164,0.172,0.176],smooth:true,symbolSize:8,lineStyle:{color:'#F2A93B',width:2.5},itemStyle:{color:'#F2A93B'}}
+];
+c1.setOption(o1);
+const c2=echarts.init(document.getElementById('chartFull'));
+const o2=baseOpt();
+o2.xAxis.data=['8192','16384','32768'];
+o2.series=[
+  {name:'Old path',type:'bar',data:[1.478,2.857,5.490],barWidth:26,itemStyle:{color:'#F0616D',borderRadius:[4,4,0,0]}},
+  {name:'New path',type:'bar',data:[1.145,1.536,2.311],barWidth:26,itemStyle:{color:'#F2A93B',borderRadius:[4,4,0,0]}}
+];
+c2.setOption(o2);
+window.addEventListener('resize',()=>{c1.resize();c2.resize();});
+
+setupCanvas();drawRope();
+</script>
+<!-- lang-switch:start -->
+<a class="lang-switch" href="./npu-inference-fix.html" hreflang="zh-CN" data-lang="zh" aria-label="切换到中文">中文</a>
+<script src="./lang-switch.js"></script>
+<!-- lang-switch:end -->
+</body>
+</html>

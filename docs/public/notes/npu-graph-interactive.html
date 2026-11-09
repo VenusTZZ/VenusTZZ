@@ -147,6 +147,7 @@ footer a:hover{text-decoration:underline}
   .sim{padding:18px}
 }
 </style>
+<link rel="stylesheet" href="./lang-switch.css">
 </head>
 <body>
 
@@ -586,5 +587,9 @@ perfChart.setOption({
 
 window.addEventListener('resize', () => { normChart.resize(); perfChart.resize(); });
 </script>
+<!-- lang-switch:start -->
+<a class="lang-switch" href="./npu-graph-interactive.en.html" hreflang="en" data-lang="en" aria-label="Switch to English">EN</a>
+<script src="./lang-switch.js"></script>
+<!-- lang-switch:end -->
 </body>
 </html>

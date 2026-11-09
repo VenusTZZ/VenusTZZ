@@ -55,6 +55,10 @@ function noteTags(note) {
   return isEn.value && note.tagsEn.length ? note.tagsEn : note.tags
 }
 
+function noteHref(note) {
+  return isEn.value && note.hrefEn ? note.hrefEn : note.href
+}
+
 const docTitle = computed(() => `${t.value.title} | ${site.value.title}`)
 
 onMounted(() => {
@@ -92,7 +96,7 @@ watch(docTitle, (title) => {
           :key="note.slug"
           class="note-card"
           :style="{ '--note-accent': note.accent }"
-          :href="note.href"
+          :href="noteHref(note)"
           target="_blank"
           rel="noopener"
         >

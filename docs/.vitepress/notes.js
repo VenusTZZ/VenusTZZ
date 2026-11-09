@@ -170,8 +170,15 @@ export function scanNotes(dir = NOTES_DIR) {
   const notes = fs
     .readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && /\.html?$/i.test(entry.name))
+    .filter((entry) => !/\.en\.html?$/i.test(entry.name))
     .filter((entry) => entry.name.toLowerCase() !== 'index.html')
-    .map((entry) => parseNote(entry.name, fs.readFileSync(path.join(dir, entry.name), 'utf8')))
+    .map((entry) => {
+      const note = parseNote(entry.name, fs.readFileSync(path.join(dir, entry.name), 'utf8'))
+      const enFile = `${note.slug}.en.html`
+      note.hasEn = fs.existsSync(path.join(dir, enFile))
+      note.hrefEn = note.hasEn ? './' + encodeURIComponent(enFile) : ''
+      return note
+    })
 
   notes.sort((a, b) => {
     if (a.pr && b.pr) return Number(b.pr) - Number(a.pr)
