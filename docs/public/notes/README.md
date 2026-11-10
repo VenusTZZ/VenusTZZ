@@ -11,6 +11,7 @@
 | `note:title` | 卡片标题，缺省取页面 `<h1>` |
 | `note:description` | 一两句话的摘要，缺省取 `<h1>` 后的第一段 |
 | `note:pr` | PR 号（纯数字），缺省从标题或正文里的 `PR #xxxx` 推断 |
+| `note:badge` | 卡片左上角徽标；没有 PR 号时可用它代替 `#xxxx`，例如 `SwiGLU` |
 | `note:series` | 卡片右上角的来源，例如 `DeepSpeed · ZeRO++` |
 | `note:tags` | 标签，用竖线或逗号分隔 |
 | `note:accent` | 卡片强调色，形如 `#4fd1a5`；缺省按文件名稳定取色 |

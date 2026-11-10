@@ -101,7 +101,7 @@ watch(docTitle, (title) => {
           rel="noopener"
         >
           <div class="note-meta">
-            <span class="note-pr">{{ note.prLabel }}</span>
+            <span class="note-pr">{{ note.badge || note.prLabel }}</span>
             <span v-if="noteSeries(note)">{{ noteSeries(note) }}</span>
           </div>
           <h2 :lang="isEn && note.titleEn ? 'en' : 'zh-CN'">{{ noteTitle(note) }}</h2>

@@ -89,13 +89,13 @@ function firstParagraph(html, fromIndex) {
 }
 
 function findPr(html, title) {
+  // 只认显式的 "PR #123"，避免把 CSS 十六进制色值（如 #111827）误判成 PR 号
   for (const source of [title, html]) {
-    for (const re of [/\bPR\s*#\s*(\d{2,6})/i, /#\s*(\d{3,6})/]) {
-      const match = source.match(re)
-      if (match) return match[1]
-    }
+    const match = source.match(/\bPR\s*#\s*(\d{2,6})/i)
+    if (match) return match[1]
   }
-  return ''
+  const titleMatch = title.match(/#\s*(\d{3,6})\b/)
+  return titleMatch ? titleMatch[1] : ''
 }
 
 function truncate(text, max = 180) {
@@ -156,6 +156,7 @@ function parseNote(file, html) {
     descriptionEn: truncateWords(readMeta(html, 'note:description:en'), 400),
     pr,
     prLabel: pr ? `#${pr}` : 'NOTE',
+    badge: readMeta(html, 'note:badge'),
     series: readMeta(html, 'note:series') || (/deepspeed/i.test(html) ? 'DeepSpeed' : ''),
     seriesEn: readMeta(html, 'note:series:en'),
     tags,

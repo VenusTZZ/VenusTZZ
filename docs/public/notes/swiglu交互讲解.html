@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SwiGLU 与 Triton 融合优化 · 交互讲解</title>
+<meta name="note:title" content="SwiGLU 与 Triton 融合：从公式到单 kernel">
+<meta name="note:description" content="从 silu(gate) * up 的数学结构和门控机制讲起，交互演示 Triton 如何用一个融合 kernel 消掉中间张量与 HBM 往返，并覆盖反向传播、Packed 布局与 Clamped 变体。">
+<meta name="note:title:en" content="SwiGLU and Triton fusion: from formula to a single kernel">
+<meta name="note:description:en" content="Starting from the math of silu(gate) * up and how gating works, this interactive walkthrough shows how a single Triton fused kernel eliminates intermediate tensors and HBM round-trips — covering backward, packed layout, and clamped variants.">
+<meta name="note:series" content="DeepSpeed · Triton">
+<meta name="note:badge" content="SwiGLU">
+<meta name="note:tags" content="SwiGLU|fused kernel|HBM traffic|backward|Packed">
+<meta name="note:accent" content="#38bdf8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2310151c'/%3E%3Cpath d='M7 11h7v10M7 21h7M18 11h7v10M18 21h7' stroke='%2338bdf8' stroke-width='2.4' fill='none'/%3E%3Ccircle cx='16' cy='16' r='2.6' fill='%23fbbf24'/%3E%3C/svg%3E">
+<style>
+/* ============ 基础与变量 ============ */
+:root{
+  --bg:#0d1117;
+  --bg2:#10151c;
+  --card:#151c26;
+  --card2:#1a2330;
+  --line:#263242;
+  --line2:#324155;
+  --txt:#e6edf3;
+  --txt2:#9fb0c0;
+  --txt3:#6b7c8e;
+  --gate:#38bdf8;
+  --up:#fbbf24;
+  --out:#34d399;
+  --sig:#7dd3fc;
+  --danger:#f87171;
+  --mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--txt);
+  font-family:var(--sans);
+  font-size:15px;
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(56,189,248,.28)}
+.wrap{max-width:1060px;margin:0 auto;padding:0 20px}
+
+/* ============ 顶部导航 ============ */
+.topnav{
+  position:sticky;top:0;z-index:50;
+  background:rgba(13,17,23,.88);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.topnav .wrap{display:flex;align-items:center;gap:18px;height:52px;overflow-x:auto}
+.brand{font-family:var(--mono);font-weight:700;font-size:14px;white-space:nowrap;color:var(--txt)}
+.brand b{color:var(--gate)}
+.topnav a{
+  color:var(--txt2);text-decoration:none;font-size:13px;white-space:nowrap;
+  padding:4px 2px;transition:color .15s;
+}
+.topnav a:hover{color:var(--gate)}
+.topnav .spacer{flex:1}
+
+/* ============ Hero ============ */
+.hero{padding:64px 0 40px;border-bottom:1px solid var(--line)}
+.hero .tag{
+  display:inline-block;font-family:var(--mono);font-size:12px;color:var(--out);
+  border:1px solid rgba(52,211,153,.4);border-radius:20px;padding:3px 12px;margin-bottom:20px;
+}
+.hero h1{font-size:34px;line-height:1.3;letter-spacing:.5px;margin-bottom:14px}
+.hero h1 code{font-family:var(--mono);color:var(--gate);font-size:30px}
+.hero p{color:var(--txt2);max-width:760px}
+.hero .formula{
+  margin-top:26px;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:20px 24px;font-family:var(--mono);font-size:15px;overflow-x:auto;
+}
+.hero .formula .c-gate{color:var(--gate)}
+.hero .formula .c-up{color:var(--up)}
+.hero .formula .c-out{color:var(--out)}
+
+/* ============ 章节卡片 ============ */
+section.card{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:30px 28px;margin:26px 0;
+}
+.sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:8px}
+.sec-no{
+  font-family:var(--mono);font-size:13px;color:var(--bg);background:var(--gate);
+  border-radius:6px;padding:1px 8px;font-weight:700;flex:none;
+}
+.sec-head h2{font-size:22px;letter-spacing:.3px}
+.sec-sub{color:var(--txt2);margin-bottom:22px}
+h3.mini{font-size:15px;color:var(--txt);margin:22px 0 10px;font-family:var(--mono)}
+p.note{color:var(--txt2);margin:10px 0}
+p.note b{color:var(--txt)}
+code.inline{
+  font-family:var(--mono);font-size:.9em;background:var(--card2);
+  border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--gate);
+}
+.c-gate{color:var(--gate)}.c-up{color:var(--up)}.c-out{color:var(--out)}.c-danger{color:var(--danger)}
+
+/* ============ 通用网格 / 面板 ============ */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.panel{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:18px}
+.panel h4{font-size:13px;font-family:var(--mono);color:var(--txt2);margin-bottom:12px;font-weight:600}
+.formula-box{
+  background:#0b0f14;border:1px solid var(--line);border-radius:10px;
+  padding:16px 18px;font-family:var(--mono);font-size:14px;overflow-x:auto;margin:12px 0;
+}
+.formula-box .lbl{color:var(--txt3)}
+
+/* ============ 滑块控件 ============ */
+.ctl{margin:14px 0}
+.ctl .row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.ctl label{font-family:var(--mono);font-size:13px;color:var(--txt2)}
+.ctl .val{font-family:var(--mono);font-size:13px;color:var(--txt);background:#0b0f14;
+  border:1px solid var(--line);border-radius:6px;padding:1px 9px;min-width:72px;text-align:center}
+input[type=range]{width:100%;height:26px;accent-color:var(--gate);cursor:pointer;background:transparent}
+input.up-range{accent-color:var(--up)}
+input.out-range{accent-color:var(--out)}
+
+/* ============ 数值结果表 ============ */
+.kv{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;font-family:var(--mono);font-size:13.5px}
+.kv dt{color:var(--txt2);white-space:nowrap}
+.kv dd{text-align:right;font-weight:600}
+.kv dd.hl{color:var(--out)}
+
+/* ============ 按钮 ============ */
+.btn{
+  font-family:var(--mono);font-size:13px;color:var(--txt);
+  background:var(--card2);border:1px solid var(--line2);border-radius:8px;
+  padding:8px 16px;cursor:pointer;transition:all .15s;
+}
+.btn:hover{border-color:var(--gate);color:var(--gate)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{border-color:rgba(56,189,248,.6);color:var(--gate)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+
+/* ============ SVG 曲线 ============ */
+.chart-svg{width:100%;height:auto;display:block}
+.chart-svg .axis{stroke:var(--line2);stroke-width:1}
+.chart-svg .gridline{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4}
+.chart-svg text{fill:var(--txt3);font-family:var(--mono);font-size:11px}
+.chart-svg .curve-sig{fill:none;stroke:var(--sig);stroke-width:2.2}
+.chart-svg .curve-silu{fill:none;stroke:var(--out);stroke-width:2.2}
+.chart-svg .cursor{stroke:var(--txt2);stroke-width:1.2;stroke-dasharray:4 3}
+.chart-svg .dot-sig{fill:var(--sig)}
+.chart-svg .dot-silu{fill:var(--out)}
+.legend{display:flex;gap:18px;margin-top:8px;font-family:var(--mono);font-size:12px;color:var(--txt2)}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+
+/* ============ 代码块 ============ */
+pre.code{
+  background:#0b0f14;border:1px solid var(--line);border-radius:10px;
+  padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.65;
+  margin:12px 0;
+}
+pre.code .cm{color:var(--txt3)}
+pre.code .kw{color:#ff7b72}
+pre.code .fn{color:#d2a8ff}
+pre.code .num{color:#79c0ff}
+pre.code .str{color:#a5d6ff}
+
+/* ============ 表格 ============ */
+table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px;margin:12px 0}
+table.tbl th,table.tbl td{border:1px solid var(--line);padding:9px 12px;text-align:left}
+table.tbl th{background:var(--card2);color:var(--txt2);font-weight:600}
+table.tbl td.num{text-align:right}
+table.tbl tr:hover td{background:rgba(56,189,248,.05)}
+
+/* ============ 通道门控 ============ */
+.channels{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+.ch{background:#0b0f14;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:var(--mono);font-size:11.5px}
+.ch .ch-id{color:var(--txt3);margin-bottom:6px}
+.ch .bar{height:7px;border-radius:4px;background:var(--line);margin:5px 0;position:relative;overflow:hidden}
+.ch .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .25s ease}
+.ch .bar.gate i{background:var(--gate)}
+.ch .bar.out i{background:var(--out)}
+.ch .ch-vals{display:flex;justify-content:space-between;color:var(--txt2);margin-top:5px}
+.ch .ch-vals b{color:var(--txt);font-weight:600}
+
+/* ============ HBM 动画 ============ */
+.flow-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.flow{background:#0b0f14;border:1px solid var(--line);border-radius:10px;padding:16px;position:relative;overflow:hidden}
+.flow h4{font-family:var(--mono);font-size:13px;margin-bottom:14px}
+.flow h4 .badge{font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px}
+.badge.e{background:rgba(248,113,113,.15);color:var(--danger);border:1px solid rgba(248,113,113,.4)}
+.badge.f{background:rgba(52,211,153,.15);color:var(--out);border:1px solid rgba(52,211,153,.4)}
+.flow-stage{display:flex;align-items:center;justify-content:space-between;height:96px;position:relative}
+.node{
+  border:1px solid var(--line2);border-radius:9px;padding:10px 12px;background:var(--card2);
+  font-family:var(--mono);font-size:11.5px;text-align:center;min-width:86px;z-index:2;
+}
+.node small{display:block;color:var(--txt3);font-size:10px;margin-top:2px}
+.track{position:absolute;left:96px;right:96px;top:50%;height:2px;background:var(--line)}
+.packet{
+  position:absolute;top:50%;width:14px;height:14px;border-radius:4px;margin-top:-7px;left:0;
+  z-index:3;opacity:0;
+}
+.packet.read{background:var(--gate)}
+.packet.write{background:var(--out)}
+.packet.tmp{background:var(--up)}
+.flow-log{font-family:var(--mono);font-size:11.5px;color:var(--txt2);min-height:74px;margin-top:10px;
+  border-top:1px solid var(--line);padding-top:10px}
+.flow-log .step{opacity:.35;transition:opacity .2s}
+.flow-log .step.on{opacity:1;color:var(--txt)}
+.flow-log .step.done{opacity:.55}
+
+/* ============ packed 网格 ============ */
+.packed-vis{display:flex;flex-direction:column;gap:6px;margin:14px 0;font-family:var(--mono)}
+.packed-row{display:grid;gap:5px}
+.pcell{
+  border:1px solid var(--line2);border-radius:6px;background:#0b0f14;
+  text-align:center;font-size:11.5px;padding:8px 4px;color:var(--txt2);position:relative;
+  transition:all .15s;
+}
+.pcell.gate-cell{border-color:rgba(56,189,248,.35)}
+.pcell.up-cell{border-color:rgba(251,191,36,.35)}
+.pcell.hot{background:rgba(52,211,153,.18);border-color:var(--out);color:var(--out);font-weight:700}
+.pcell .pidx{position:absolute;top:2px;left:5px;font-size:9.5px;color:var(--txt3)}
+.zone-label{font-size:11px;color:var(--txt3);font-family:var(--mono);margin-top:4px}
+
+/* ============ 总结清单 ============ */
+.summary-list{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+.summary-list .si{
+  background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:14px 16px;
+}
+.summary-list .si h4{font-family:var(--mono);font-size:13.5px;margin-bottom:6px}
+.summary-list .si h4 .n{color:var(--gate);margin-right:8px}
+.summary-list .si p{font-size:13px;color:var(--txt2)}
+footer{padding:36px 0 56px;color:var(--txt3);font-size:12.5px;text-align:center;font-family:var(--mono)}
+
+/* ============ 响应式 ============ */
+@media (max-width:820px){
+  .grid2,.grid3,.flow-grid,.summary-list{grid-template-columns:1fr}
+  .channels{grid-template-columns:repeat(2,1fr)}
+  .hero h1{font-size:26px}
+  .hero h1 code{font-size:23px}
+  section.card{padding:22px 18px}
+  .track{left:80px;right:80px}
+  .node{min-width:72px;font-size:10.5px;padding:8px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;animation:none !important}
+  html{scroll-behavior:auto}
+}
+</style>
+<link rel="stylesheet" href="./lang-switch.css">
+</head>
+<body>
+
+<!-- ===== 顶部导航 ===== -->
+<nav class="topnav">
+  <div class="wrap">
+    <div class="brand">Swi<b>GLU</b> · Triton Lab</div>
+    <a href="#sec1">公式拆解</a>
+    <a href="#sec2">函数曲线</a>
+    <a href="#sec3">门控通道</a>
+    <a href="#sec4">融合优化</a>
+    <a href="#sec5">反向传播</a>
+    <a href="#sec6">Packed</a>
+    <a href="#sec7">Clamped</a>
+    <span class="spacer"></span>
+  </div>
+</nav>
+
+<!-- ===== Hero ===== -->
+<header class="hero">
+  <div class="wrap">
+    <span class="tag">交互式技术讲解 · 拖动滑块即可实验</span>
+    <h1>从 <code>silu(gate) * up</code> 到 Triton 融合 kernel</h1>
+    <p>SwiGLU 是现代大模型（LLaMA、PaLM、Mistral、DeepSeek 等）前馈网络的标准激活结构。
+    本页用可操作的小实验讲清三件事：它的数学结构、门控机制如何工作，以及 Triton 为什么能用一个 kernel
+    消灭 eager 模式下的中间张量与多余的 HBM 往返。</p>
+    <div class="formula">
+      <span class="c-out">out</span> = <span class="c-gate">silu(gate)</span> ⊗ <span class="c-up">up</span>
+      &nbsp;，&nbsp;其中&nbsp; <span class="c-gate">silu(x)</span> = x · σ(x)
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- ===== 模块 1：公式拆解 + 交互计算器 ===== -->
+<section class="card" id="sec1">
+  <div class="sec-head"><span class="sec-no">01</span><h2>公式拆解：两个零件如何合体</h2></div>
+  <p class="sec-sub">SwiGLU = SiLU 非线性分支 × 线性门控分支。先拖动滑块，对每个中间量建立直觉。</p>
+
+  <div class="grid2">
+    <div class="panel">
+      <h4>输入（gate / up 是两个 GEMM 的原始输出）</h4>
+      <div class="ctl">
+        <div class="row"><label class="c-gate">gate</label><span class="val" id="v-gate">1.2000</span></div>
+        <input type="range" id="r-gate" min="-6" max="6" step="0.05" value="1.2">
+      </div>
+      <div class="ctl">
+        <div class="row"><label class="c-up">up</label><span class="val" id="v-up">0.8000</span></div>
+        <input type="range" class="up-range" id="r-up" min="-6" max="6" step="0.05" value="0.8">
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btn-neg">试试 gate 为负</button>
+        <button class="btn" id="btn-reset1">重置</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h4>逐步计算（全部在 fp32 下完成）</h4>
+      <dl class="kv">
+        <dt>σ(gate) = sigmoid</dt><dd id="v-sig">—</dd>
+        <dt>silu(gate) = gate·σ</dt><dd id="v-silu">—</dd>
+        <dt>× up</dt><dd id="v-mul">—</dd>
+        <dt class="c-out">out</dt><dd class="hl" id="v-out">—</dd>
+      </dl>
+    </div>
+  </div>
+
+  <h3 class="mini">三个同族门控变体，只差非线性分支的激活函数</h3>
+  <table class="tbl">
+    <thead><tr><th>名称</th><th>公式</th><th>非线性激活</th></tr></thead>
+    <tbody>
+      <tr><td>ReGLU</td><td>ReLU(xW) ⊗ xV</td><td>ReLU</td></tr>
+      <tr><td>GEGLU</td><td>GELU(xW) ⊗ xV</td><td>GELU</td></tr>
+      <tr><td><b>SwiGLU</b></td><td>SiLU(xW) ⊗ xV</td><td>SiLU / Swish</td></tr>
+    </tbody>
+  </table>
+  <p class="note">注意结构细节：<b>SiLU 作用在内容分支上，另一条分支保持线性</b>，两者逐元素相乘——
+  这和原始 GLU「sigmoid 当门」的位置正好相反，是最容易记混的地方。</p>
+</section>
+
+<!-- ===== 模块 2：函数曲线 ===== -->
+<section class="card" id="sec2">
+  <div class="sec-head"><span class="sec-no">02</span><h2>SiLU 与 Sigmoid 长什么样</h2></div>
+  <p class="sec-sub">拖动滑块或直接在图上移动鼠标，观察当前 x 的取值。注意 SiLU 在负半轴有一小段向下凹陷（非单调），这是它和 ReLU 的关键区别。</p>
+
+  <div class="grid2">
+    <div class="panel">
+      <h4>σ(x) = sigmoid(x)，值域 (0, 1)</h4>
+      <svg class="chart-svg" id="chart-sig" viewBox="0 0 520 300" role="img" aria-label="sigmoid 曲线"></svg>
+    </div>
+    <div class="panel">
+      <h4>silu(x) = x · σ(x)，光滑、非单调</h4>
+      <svg class="chart-svg" id="chart-silu" viewBox="0 0 520 300" role="img" aria-label="silu 曲线"></svg>
+    </div>
+  </div>
+
+  <div class="ctl" style="max-width:520px;margin-top:18px">
+    <div class="row"><label>游标 x</label><span class="val" id="v-cursor">1.20</span></div>
+    <input type="range" id="r-cursor" min="-6" max="6" step="0.05" value="1.2">
+  </div>
+  <div class="legend">
+    <span><i style="background:var(--sig)"></i>sigmoid(x) = <span id="lg-sig">—</span></span>
+    <span><i style="background:var(--out)"></i>silu(x) = <span id="lg-silu">—</span></span>
+  </div>
+</section>
+
+<!-- ===== 模块 3：门控通道 ===== -->
+<section class="card" id="sec3">
+  <div class="sec-head"><span class="sec-no">03</span><h2>门控机制：每个通道动态决定放行多少</h2></div>
+  <p class="sec-sub">把 12 个通道并排看：蓝色条是门开度 σ(gate)，绿色条是最终输出 |silu(gate)·up|。gate 为负时门接近关闭、输出被压到接近 0；gate 为正时门打开。</p>
+  <div class="btn-row">
+    <button class="btn primary" id="btn-ch-regen">重新生成一组 gate / up</button>
+    <button class="btn" id="btn-ch-play">自动播放</button>
+  </div>
+  <div class="channels" id="channels"></div>
+  <p class="note">普通激活（如 ReLU）对信号做的是<b>固定形状</b>的变换；门控让网络根据当前数据
+  <b>动态学习每个通道的开关幅度</b>，这是 SwiGLU 表达能力的来源。</p>
+</section>
+
+<!-- ===== 模块 4：Triton 融合优化 ===== -->
+<section class="card" id="sec4">
+  <div class="sec-head"><span class="sec-no">04</span><h2>Triton 融合：把中间张量留在寄存器里</h2></div>
+  <p class="sec-sub">SwiGLU 是 memory-bound 算子——算术极少，瓶颈是 HBM 带宽。点击播放，对比 eager 两个 kernel 的多次往返与 fused 单 kernel 的最小访存。</p>
+
+  <div class="flow-grid">
+    <!-- eager 动画 -->
+    <div class="flow" id="flow-eager">
+      <h4>eager：两个独立 kernel<span class="badge e">2 launches · 5 次访问/元素</span></h4>
+      <div class="flow-stage">
+        <div class="node">计算单元<small>SM / 寄存器</small></div>
+        <div class="track"></div>
+        <div class="node">HBM<small>全局显存</small></div>
+        <div class="packet read" id="e-p1"></div>
+        <div class="packet tmp" id="e-p2"></div>
+        <div class="packet tmp" id="e-p3"></div>
+        <div class="packet read" id="e-p4"></div>
+        <div class="packet write" id="e-p5"></div>
+      </div>
+      <div class="flow-log" id="e-log">
+        <div class="step" data-s="0">① kernel 1：读 gate，算 silu</div>
+        <div class="step" data-s="1">② kernel 1：写临时张量 silu_gate（落 HBM）</div>
+        <div class="step" data-s="2">③ kernel 2：把临时张量读回来</div>
+        <div class="step" data-s="3">④ kernel 2：读 up</div>
+        <div class="step" data-s="4">⑤ kernel 2：相乘，写 out</div>
+      </div>
+    </div>
+
+    <!-- fused 动画 -->
+    <div class="flow" id="flow-fused">
+      <h4>fused Triton kernel<span class="badge f">1 launch · 3 次访问/元素</span></h4>
+      <div class="flow-stage">
+        <div class="node">计算单元<small>SM / 寄存器</small></div>
+        <div class="track"></div>
+        <div class="node">HBM<small>全局显存</small></div>
+        <div class="packet read" id="f-p1"></div>
+        <div class="packet read" id="f-p2"></div>
+        <div class="packet write" id="f-p3"></div>
+      </div>
+      <div class="flow-log" id="f-log">
+        <div class="step" data-s="0">① 读 gate 进寄存器，转 fp32</div>
+        <div class="step" data-s="1">② 读 up 进寄存器，转 fp32</div>
+        <div class="step" data-s="2">③ 寄存器内：sigmoid → silu → 相乘（零 HBM 流量）</div>
+        <div class="step" data-s="3">④ cast 回原 dtype，写 out</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn primary" id="btn-flow-play">播放对比动画</button>
+  </div>
+
+  <h3 class="mini">HBM 流量计算器（改元素数和 dtype，看节省了多少字节）</h3>
+  <div class="grid2">
+    <div class="panel">
+      <div class="ctl">
+        <div class="row"><label>元素数 n</label><span class="val" id="v-n">1,048,576</span></div>
+        <input type="range" id="r-n" min="1024" max="8388608" step="1024" value="1048576">
+      </div>
+      <div class="ctl">
+        <div class="row"><label>每元素字节宽度</label></div>
+        <div class="btn-row" id="dtype-btns">
+          <button class="btn primary" data-bytes="2">fp16 / bf16（2 B）</button>
+          <button class="btn" data-bytes="4">fp32（4 B）</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <h4>前向总 HBM 流量</h4>
+      <dl class="kv">
+        <dt>eager：5 × n × B</dt><dd id="v-eager-bytes">—</dd>
+        <dt>fused：3 × n × B</dt><dd id="v-fused-bytes">—</dd>
+        <dt class="c-out">节省</dt><dd class="hl" id="v-saved-bytes">—</dd>
+      </dl>
+    </div>
+  </div>
+  <p class="note">eager 的 5 次访问 = 读 gate、临时张量写+读、读 up、写 out；fused 的 3 次 = 读 gate、读 up、写 out。
+  无论张量多大，<b>融合都稳定砍掉 40% 的前向 HBM 流量</b>，并省一次 kernel launch。反向同理：eager 一串临时量，
+  fused 反向 kernel 为 3 读 2 写。</p>
+</section>
+
+<!-- ===== 模块 5：反向传播 ===== -->
+<section class="card" id="sec5">
+  <div class="sec-head"><span class="sec-no">05</span><h2>反向 kernel：链式法则在寄存器里展开</h2></div>
+  <p class="sec-sub">前向 out = silu(gate)·up，一个 Triton 反向 kernel 同时输出两个梯度。拖动上游梯度，验证下面的公式。</p>
+
+  <div class="formula-box">
+    <div><span class="lbl"># SiLU 的导数</span></div>
+    <div>silu′(x) = σ(x)·( 1 + x·(1 − σ(x)) )</div>
+    <div style="margin-top:10px"><span class="lbl"># 两条输入的梯度</span></div>
+    <div>∂L/∂up   = grad_out · silu(gate)</div>
+    <div>∂L/∂gate = grad_out · up · silu′(gate)</div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h4>输入</h4>
+      <div class="ctl">
+        <div class="row"><label class="c-out">grad_out</label><span class="val" id="b-v-go">0.5000</span></div>
+        <input type="range" class="out-range" id="b-r-go" min="-2" max="2" step="0.05" value="0.5">
+      </div>
+      <div class="ctl">
+        <div class="row"><label class="c-gate">gate</label><span class="val" id="b-v-g">1.2000</span></div>
+        <input type="range" id="b-r-g" min="-6" max="6" step="0.05" value="1.2">
+      </div>
+      <div class="ctl">
+        <div class="row"><label class="c-up">up</label><span class="val" id="b-v-u">0.8000</span></div>
+        <input type="range" class="up-range" id="b-r-u" min="-6" max="6" step="0.05" value="0.8">
+      </div>
+    </div>
+    <div class="panel">
+      <h4>反向计算（fp32）</h4>
+      <dl class="kv">
+        <dt>σ(gate)</dt><dd id="b-v-sig">—</dd>
+        <dt>silu(gate)</dt><dd id="b-v-silu">—</dd>
+        <dt>silu′(gate)</dt><dd id="b-v-dsilu">—</dd>
+        <dt class="c-gate">grad_gate</dt><dd class="hl" id="b-v-gg">—</dd>
+        <dt class="c-up">grad_up</dt><dd class="hl" id="b-v-gu">—</dd>
+      </dl>
+    </div>
+  </div>
+  <p class="note">前向只保存 gate 和 up，<b>不保存 sigmoid 结果</b>；反向需要时在片上重算——
+  elementwise 重算很便宜，而把大张量写进 HBM 再读回来很贵，这是「用计算换显存」的典型取舍。</p>
+</section>
+
+<!-- ===== 模块 6：Packed 地址计算 ===== -->
+<section class="card" id="sec6">
+  <div class="sec-head"><span class="sec-no">06</span><h2>Packed 布局：一个 GEMM 输出，零拷贝读取</h2></div>
+  <p class="sec-sub">gate 和 up 可由单个融合 GEMM 输出成 [..., 2·I] 的 packed 张量。kernel 用整数除法把输出线性索引换算回 packed 地址，不需要 chunk 或拷贝。</p>
+
+  <div class="formula-box">
+    <div>gate_offsets = (offsets // INTER) · (2·INTER) + offsets % INTER</div>
+    <div style="margin-top:8px">up_offsets &nbsp; = gate_offsets + INTER</div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h4>参数</h4>
+      <div class="ctl">
+        <div class="row"><label>INTER（每行 gate/up 宽度）</label></div>
+        <div class="btn-row" id="inter-btns">
+          <button class="btn primary" data-inter="4">4</button>
+          <button class="btn" data-inter="6">6</button>
+          <button class="btn" data-inter="8">8</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <div class="row"><label>输出线性索引 offsets</label><span class="val" id="p-v-off">0</span></div>
+        <input type="range" class="out-range" id="p-r-off" min="0" max="7" step="1" value="0">
+      </div>
+      <dl class="kv" style="margin-top:8px">
+        <dt>row = offsets // INTER</dt><dd id="p-v-row">0</dd>
+        <dt>col = offsets % INTER</dt><dd id="p-v-col">0</dd>
+        <dt class="c-gate">gate 地址</dt><dd class="hl" id="p-v-gateoff">0</dd>
+        <dt class="c-up">up 地址</dt><dd class="hl" id="p-v-upoff">4</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <h4>packed 张量可视化（2 行 × 2·INTER，数字为线性地址）</h4>
+      <div class="packed-vis" id="packed-vis"></div>
+      <div class="zone-label"><span class="c-gate">左半 gate</span> ｜ <span class="c-up">右半 up</span> ｜ 高亮 = 当前输出元素读取的两个地址</div>
+    </div>
+  </div>
+  <p class="note">反向同理：两个梯度写回同一个 packed 梯度缓冲的对应地址。由于自定义 kernel 不构建 autograd 图，
+  packed 路径<b>只支持一阶梯度</b>，create_graph=True 会直接报错而不是静默给出错误结果。</p>
+</section>
+
+<!-- ===== 模块 7：Clamped 变体 ===== -->
+<section class="card" id="sec7">
+  <div class="sec-head"><span class="sec-no">07</span><h2>Clamped SwiGLU：限幅与两种新公式</h2></div>
+  <p class="sec-sub">GPT-OSS / MiniMax-M3 与 DeepSeek-V4 在 SwiGLU 外加入 clamp 抑制异常激活。切换公式并观察边界处梯度如何被置零。</p>
+
+  <div class="btn-row" id="clamp-btns">
+    <button class="btn primary" data-oai="1">OAI 形式（GPT-OSS / MiniMax-M3）</button>
+    <button class="btn" data-oai="0">普通形式（DeepSeek-V4）</button>
+  </div>
+
+  <div class="formula-box" id="clamp-formula">
+    <div>(clamp(up) + 1) · g · sigmoid(α·g)， g = clamp(gate, max=limit)</div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="ctl">
+        <div class="row"><label class="c-gate">gate</label><span class="val" id="c-v-g">3.0000</span></div>
+        <input type="range" id="c-r-g" min="-10" max="10" step="0.1" value="3">
+      </div>
+      <div class="ctl">
+        <div class="row"><label class="c-up">up</label><span class="val" id="c-v-u">2.0000</span></div>
+        <input type="range" class="up-range" id="c-r-u" min="-10" max="10" step="0.1" value="2">
+      </div>
+      <div class="ctl">
+        <div class="row"><label>limit</label><span class="val" id="c-v-l">7.0</span></div>
+        <input type="range" id="c-r-l" min="2" max="10" step="0.1" value="7">
+      </div>
+      <div class="ctl">
+        <div class="row"><label>alpha（仅 OAI）</label><span class="val" id="c-v-a">1.702</span></div>
+        <input type="range" id="c-r-a" min="0.5" max="3" step="0.002" value="1.702">
+      </div>
+    </div>
+    <div class="panel">
+      <h4>计算结果</h4>
+      <dl class="kv">
+        <dt>g = min(gate, limit)</dt><dd id="c-v-gv">—</dd>
+        <dt>u = clamp(up, ±limit)</dt><dd id="c-v-uv">—</dd>
+        <dt class="c-out">out</dt><dd class="hl" id="c-v-out">—</dd>
+        <dt>gate 梯度通过？</dt><dd id="c-v-pg">—</dd>
+        <dt>up 梯度通过？</dt><dd id="c-v-pu">—</dd>
+      </dl>
+    </div>
+  </div>
+  <p class="note">clamp 的反向是分段的：区间内梯度直通，边界外置零（kernel 里用 <code class="inline">tl.where</code> 实现）。
+  判断时用的是<b>原始输入</b>与 limit 比较，而不是 clamp 之后的值。</p>
+</section>
+
+<!-- ===== 总结 ===== -->
+<section class="card">
+  <div class="sec-head"><span class="sec-no">08</span><h2>一页带走：优化清单与边界</h2></div>
+  <div class="summary-list">
+    <div class="si"><h4><span class="n">A</span>访存最小化</h4><p>前向每元素 2 读 1 写、反向 3 读 2 写，中间结果只在寄存器，消灭临时张量的 HBM 往返。</p></div>
+    <div class="si"><h4><span class="n">B</span>launch 减半</h4><p>前向两个 elementwise kernel 合一个，MoE 专家数多时 launch 与 allocator 开销同步下降。</p></div>
+    <div class="si"><h4><span class="n">C</span>fp32 累加</h4><p>fp16/bf16 输入、fp32 计算、原 dtype 存储，sigmoid 大输入下依然数值稳定。</p></div>
+    <div class="si"><h4><span class="n">D</span>packed 零拷贝</h4><p>地址算术原地消费融合 GEMM 的 [..., 2I] 输出；constexpr 特化覆盖独立/打包/多种公式。</p></div>
+    <div class="si"><h4><span class="n">E</span>硬件分发</h4><p>dispatch 允许各平台覆盖专用实现，Triton 不可用时自动回退 eager，数学严格对齐。</p></div>
+    <div class="si"><h4><span class="n">F</span>边界要清楚</h4><p>elementwise 与 GEMM 仍是分开 kernel（终极形态是 GEMM epilogue 融合）；contiguous 可能隐式拷贝；无二阶导。</p></div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  SwiGLU · Triton Fused Kernel 交互讲解 · 基于 DeepSpeed 开源实现的数学与工程原理整理 · 所有数值由浏览器实时计算
+</footer>
+
+<script>
+/* ============================================================
+ * 工具函数
+ * ============================================================ */
+const $ = (id) => document.getElementById(id);
+const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+const silu = (x) => x * sigmoid(x);
+const f4 = (x) => (x >= 0 ? ' ' : '') + x.toFixed(4);
+const f2 = (x) => x.toFixed(2);
+
+/* ============================================================
+ * 模块 1：交互计算器
+ * ============================================================ */
+function initCalc(){
+  const rg = $('r-gate'), ru = $('r-up');
+  function render(){
+    const g = parseFloat(rg.value), u = parseFloat(ru.value);
+    const s = sigmoid(g), sl = g * s, out = sl * u;
+    $('v-gate').textContent = f4(g);
+    $('v-up').textContent   = f4(u);
+    $('v-sig').textContent  = f4(s);
+    $('v-silu').textContent = f4(sl);
+    $('v-mul').textContent  = f4(sl) + ' × ' + f4(u);
+    $('v-out').textContent  = f4(out);
+  }
+  rg.addEventListener('input', render);
+  ru.addEventListener('input', render);
+  $('btn-neg').addEventListener('click', () => { rg.value = -1.4; render(); });
+  $('btn-reset1').addEventListener('click', () => { rg.value = 1.2; ru.value = 0.8; render(); });
+  render();
+}
+
+/* ============================================================
+ * 模块 2：SVG 曲线
+ * ============================================================ */
+const CHART = { W:520, H:300, PADL:44, PADR:16, PADT:18, PADB:34, XMIN:-6, XMAX:6 };
+
+function chartAxes(svg, ymin, ymax){
+  const { W,H,PADL,PADR,PADT,PADB } = CHART;
+  const x2px = (x) => PADL + (x - CHART.XMIN) / (CHART.XMAX - CHART.XMIN) * (W - PADL - PADR);
+  const y2px = (y) => PADT + (ymax - y) / (ymax - ymin) * (H - PADT - PADB);
+  let ns = 'http://www.w3.org/2000/svg';
+  let html = '';
+  // 横向网格 + y 轴刻度
+  for(let y = Math.ceil(ymin); y <= ymax; y++){
+    const py = y2px(y);
+    html += `<line class="gridline" x1="${PADL}" y1="${py}" x2="${W-PADR}" y2="${py}"/>`;
+    html += `<text x="${PADL-8}" y="${py+4}" text-anchor="end">${y}</text>`;
+  }
+  // x 轴刻度
+  for(let x = -6; x <= 6; x += 2){
+    const px = x2px(x);
+    html += `<line class="gridline" x1="${px}" y1="${PADT}" x2="${px}" y2="${H-PADB}"/>`;
+    html += `<text x="${px}" y="${H-PADB+18}" text-anchor="middle">${x}</text>`;
+  }
+  html += `<line class="axis" x1="${PADL}" y1="${H-PADB}" x2="${W-PADR}" y2="${H-PADB}"/>`;
+  html += `<line class="axis" x1="${PADL}" y1="${PADT}" x2="${PADL}" y2="${H-PADB}"/>`;
+  // 游标与点（动态更新）
+  html += `<line class="cursor" id="${svg.id}-cur" x1="0" y1="${PADT}" x2="0" y2="${H-PADB}"/>`;
+  html += `<circle class="${svg.id==='chart-sig'?'dot-sig':'dot-silu'}" id="${svg.id}-dot" r="4.5" cx="0" cy="0"/>`;
+  svg.innerHTML = html;
+  return { x2px, y2px };
+}
+
+function drawCurve(svg, fn, cls, ymin, ymax, maps){
+  let d = '';
+  for(let i = 0; i <= 240; i++){
+    const x = CHART.XMIN + (CHART.XMAX - CHART.XMIN) * i / 240;
+    const y = fn(x);
+    const px = maps.x2px(x), py = maps.y2px(Math.max(ymin, Math.min(ymax, y)));
+    d += (i === 0 ? 'M' : 'L') + px.toFixed(1) + ' ' + py.toFixed(1);
+  }
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('class', cls);
+  path.setAttribute('d', d);
+  svg.insertBefore(path, svg.firstChild);
+}
+
+function initCharts(){
+  const sigSvg = $('chart-sig'), siluSvg = $('chart-silu');
+  const sigMaps = chartAxes(sigSvg, -0.1, 1.1);
+  const siluMaps = chartAxes(siluSvg, -1, 6);
+  drawCurve(sigSvg, sigmoid, 'curve-sig', -0.1, 1.1, sigMaps);
+  drawCurve(siluSvg, silu, 'curve-silu', -1, 6, siluMaps);
+
+  const rc = $('r-cursor');
+  function update(x){
+    const px1 = sigMaps.x2px(x), py1 = sigMaps.y2px(sigmoid(x));
+    const px2 = siluMaps.x2px(x), py2 = siluMaps.y2px(Math.max(-1, Math.min(6, silu(x))));
+    $('chart-sig-cur').setAttribute('x1', px1); $('chart-sig-cur').setAttribute('x2', px1);
+    $('chart-sig-dot').setAttribute('cx', px1); $('chart-sig-dot').setAttribute('cy', py1);
+    $('chart-silu-cur').setAttribute('x1', px2); $('chart-silu-cur').setAttribute('x2', px2);
+    $('chart-silu-dot').setAttribute('cx', px2); $('chart-silu-dot').setAttribute('cy', py2);
+    $('v-cursor').textContent = f2(x);
+    $('lg-sig').textContent = f4(sigmoid(x));
+    $('lg-silu').textContent = f4(silu(x));
+  }
+  rc.addEventListener('input', () => update(parseFloat(rc.value)));
+
+  // 鼠标在任一图上移动 -> 联动游标
+  [sigSvg, siluSvg].forEach((svg) => {
+    svg.addEventListener('pointermove', (e) => {
+      const rect = svg.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width * CHART.W;
+      const { PADL, PADR } = CHART;
+      if(px < PADL || px > CHART.W - PADR) return;
+      const x = CHART.XMIN + (px - PADL) / (CHART.W - PADL - PADR) * (CHART.XMAX - CHART.XMIN);
+      rc.value = Math.round(x * 20) / 20;
+      update(x);
+    });
+  });
+  update(parseFloat(rc.value));
+}
+
+/* ============================================================
+ * 模块 3：门控通道
+ * ============================================================ */
+const CH_N = 12;
+let chData = [];
+let chTimer = null;
+
+function randRange(a, b){ return a + Math.random() * (b - a); }
+function renderChannels(){
+  const box = $('channels');
+  box.innerHTML = chData.map((d, i) => {
+    const s = sigmoid(d.g);
+    const o = silu(d.g) * d.u;
+    const gateW = (s * 100).toFixed(1);
+    const outW = Math.min(100, Math.abs(o) / 12 * 100).toFixed(1);
+    return `<div class="ch">
+      <div class="ch-id">通道 ${String(i).padStart(2,'0')}</div>
+      <div class="bar gate"><i style="width:${gateW}%"></i></div>
+      <div class="bar out"><i style="width:${outW}%"></i></div>
+      <div class="ch-vals"><span>g=<b>${f2(d.g)}</b></span><span>u=<b>${f2(d.u)}</b></span><span>o=<b>${f2(o)}</b></span></div>
+    </div>`;
+  }).join('');
+}
+function initChannels(){
+  chData = Array.from({length:CH_N}, () => ({ g:randRange(-4,4), u:randRange(-3,3) }));
+  renderChannels();
+  $('btn-ch-regen').addEventListener('click', () => {
+    chData = chData.map(() => ({ g:randRange(-4,4), u:randRange(-3,3) }));
+    renderChannels();
+  });
+  $('btn-ch-play').addEventListener('click', () => {
+    const btn = $('btn-ch-play');
+    if(chTimer){
+      clearInterval(chTimer); chTimer = null; btn.textContent = '自动播放'; return;
+    }
+    btn.textContent = '停止播放';
+    chTimer = setInterval(() => {
+      chData = chData.map(d => ({
+        g: Math.max(-4, Math.min(4, d.g + randRange(-0.5, 0.5))),
+        u: Math.max(-3, Math.min(3, d.u + randRange(-0.35, 0.35)))
+      }));
+      renderChannels();
+    }, 700);
+  });
+}
+
+/* ============================================================
+ * 模块 4：HBM 往返动画（Web Animations API）
+ * ============================================================ */
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const L_FROM = '15%', L_TO = 'calc(85% - 14px)';
+
+function movePacket(el, dir, ms){
+  el.style.opacity = '1';
+  const from = dir === 'in' ? L_TO : L_FROM;
+  const to   = dir === 'in' ? L_FROM : L_TO;
+  const anim = el.animate(
+    [{ left:from, opacity:1 }, { left:to, opacity:1 }],
+    { duration:ms, easing:'ease-in-out', fill:'forwards' }
+  );
+  return anim.finished.then(() => { el.style.opacity = '0'; });
+}
+function resetPackets(ids){
+  ids.forEach(id => { const el = $(id); el.style.opacity = '0'; el.style.left = L_FROM; });
+}
+function setLog(container, activeIdx, done){
+  container.querySelectorAll('.step').forEach((s, i) => {
+    s.classList.toggle('on', i === activeIdx);
+    s.classList.toggle('done', done && i < activeIdx);
+  });
+}
+async function playFlows(){
+  const btn = $('btn-flow-play');
+  btn.disabled = true;
+  const eIds = ['e-p1','e-p2','e-p3','e-p4','e-p5'];
+  const fIds = ['f-p1','f-p2','f-p3'];
+  resetPackets(eIds); resetPackets(fIds);
+  $('e-log').querySelectorAll('.step').forEach(s => s.className = 'step');
+  $('f-log').querySelectorAll('.step').forEach(s => s.className = 'step');
+
+  // eager 五步序列
+  const eagerSeq = (async () => {
+    const steps = [
+      ['e-p1','in',0], ['e-p2','out',1], ['e-p3','in',2], ['e-p4','in',3], ['e-p5','out',4]
+    ];
+    for(const [pid, dir, logIdx] of steps){
+      setLog($('e-log'), logIdx, false);
+      await movePacket($(pid), dir, 560);
+      await sleep(120);
+    }
+    setLog($('e-log'), -1, true);
+  })();
+
+  // fused 四步序列（第三步是寄存器内计算，无 packet）
+  const fusedSeq = (async () => {
+    setLog($('f-log'), 0, false);
+    await movePacket($('f-p1'), 'in', 560);
+    await sleep(120);
+    setLog($('f-log'), 1, false);
+    await movePacket($('f-p2'), 'in', 560);
+    await sleep(120);
+    setLog($('f-log'), 2, false);
+    await sleep(700); // 片上计算，无 HBM 动作
+    setLog($('f-log'), 3, false);
+    await movePacket($('f-p3'), 'out', 560);
+    setLog($('f-log'), -1, true);
+  })();
+
+  await Promise.all([eagerSeq, fusedSeq]);
+  btn.disabled = false;
+}
+
+/* ---- HBM 流量计算 ---- */
+function fmtBytes(b){
+  const units = ['B','KiB','MiB','GiB'];
+  let v = b, i = 0;
+  while(v >= 1024 && i < units.length - 1){ v /= 1024; i++; }
+  return v.toFixed(2) + ' ' + units[i];
+}
+function initBytes(){
+  const rn = $('r-n');
+  let bytes = 2;
+  function render(){
+    const n = parseInt(rn.value, 10);
+    $('v-n').textContent = n.toLocaleString('en-US');
+    $('v-eager-bytes').textContent = fmtBytes(5 * n * bytes);
+    $('v-fused-bytes').textContent = fmtBytes(3 * n * bytes);
+    $('v-saved-bytes').textContent = fmtBytes(2 * n * bytes) + '（40%）';
+  }
+  rn.addEventListener('input', render);
+  document.querySelectorAll('#dtype-btns .btn').forEach(b => {
+    b.addEventListener('click', () => {
+      bytes = parseInt(b.dataset.bytes, 10);
+      document.querySelectorAll('#dtype-btns .btn').forEach(x => x.classList.remove('primary'));
+      b.classList.add('primary');
+      render();
+    });
+  });
+  render();
+}
+function initFlow(){
+  $('btn-flow-play').addEventListener('click', playFlows);
+  initBytes();
+}
+
+/* ============================================================
+ * 模块 5：反向传播交互
+ * ============================================================ */
+function initBackward(){
+  const rgo = $('b-r-go'), rg = $('b-r-g'), ru = $('b-r-u');
+  function render(){
+    const go = parseFloat(rgo.value), g = parseFloat(rg.value), u = parseFloat(ru.value);
+    const s = sigmoid(g), sl = g * s, ds = s * (1 + g * (1 - s));
+    $('b-v-go').textContent = f4(go);
+    $('b-v-g').textContent  = f4(g);
+    $('b-v-u').textContent  = f4(u);
+    $('b-v-sig').textContent  = f4(s);
+    $('b-v-silu').textContent = f4(sl);
+    $('b-v-dsilu').textContent = f4(ds);
+    $('b-v-gg').textContent = f4(go * u * ds);
+    $('b-v-gu').textContent = f4(go * sl);
+  }
+  [rgo, rg, ru].forEach(r => r.addEventListener('input', render));
+  render();
+}
+
+/* ============================================================
+ * 模块 6：Packed 地址计算
+ * ============================================================ */
+const PACK_ROWS = 2;
+let packInter = 4;
+
+function renderPacked(){
+  const off = parseInt($('p-r-off').value, 10);
+  const row = Math.floor(off / packInter), col = off % packInter;
+  const gateOff = row * (2 * packInter) + col, upOff = gateOff + packInter;
+  $('p-v-off').textContent = off;
+  $('p-v-row').textContent = row;
+  $('p-v-col').textContent = col;
+  $('p-v-gateoff').textContent = gateOff;
+  $('p-v-upoff').textContent = upOff;
+
+  // 网格
+  const vis = $('packed-vis');
+  let html = '';
+  for(let r = 0; r < PACK_ROWS; r++){
+    html += `<div class="packed-row" style="grid-template-columns:repeat(${2*packInter},1fr)">`;
+    for(let c = 0; c < 2 * packInter; c++){
+      const addr = r * 2 * packInter + c;
+      const isGate = c < packInter;
+      const hot = addr === gateOff || addr === upOff;
+      html += `<div class="pcell ${isGate?'gate-cell':'up-cell'} ${hot?'hot':''}">
+        <span class="pidx">${addr}</span>${hot ? '★' : (isGate?'g':'u')}${c%packInter}</div>`;
+    }
+    html += '</div>';
+  }
+  vis.innerHTML = html;
+}
+function initPacked(){
+  document.querySelectorAll('#inter-btns .btn').forEach(b => {
+    b.addEventListener('click', () => {
+      packInter = parseInt(b.dataset.inter, 10);
+      document.querySelectorAll('#inter-btns .btn').forEach(x => x.classList.remove('primary'));
+      b.classList.add('primary');
+      const ro = $('p-r-off');
+      ro.max = PACK_ROWS * packInter - 1;
+      ro.value = 0;
+      renderPacked();
+    });
+  });
+  $('p-r-off').addEventListener('input', renderPacked);
+  renderPacked();
+}
+
+/* ============================================================
+ * 模块 7：Clamped 变体
+ * ============================================================ */
+let oaiMode = true;
+function initClamped(){
+  const rg = $('c-r-g'), ru = $('c-r-u'), rl = $('c-r-l'), ra = $('c-r-a');
+  document.querySelectorAll('#clamp-btns .btn').forEach(b => {
+    b.addEventListener('click', () => {
+      oaiMode = b.dataset.oai === '1';
+      document.querySelectorAll('#clamp-btns .btn').forEach(x => x.classList.remove('primary'));
+      b.classList.add('primary');
+      $('clamp-formula').innerHTML = oaiMode
+        ? '<div>(clamp(up) + 1) · g · sigmoid(α·g)， g = clamp(gate, max=limit)</div>'
+        : '<div>silu(g) · u， g = clamp(gate, max=limit)， u = clamp(up, ±limit)</div>';
+      render();
+    });
+  });
+  function render(){
+    const gate = parseFloat(rg.value), up = parseFloat(ru.value);
+    const limit = parseFloat(rl.value), alpha = parseFloat(ra.value);
+    const g = Math.min(gate, limit);
+    const u = Math.min(Math.max(up, -limit), limit);
+    let out;
+    if(oaiMode){
+      out = (u + 1) * (g * sigmoid(g * alpha));
+    }else{
+      out = g * sigmoid(g) * u;
+    }
+    const pg = gate <= limit;
+    const pu = up >= -limit && up <= limit;
+    $('c-v-g').textContent = f4(gate);
+    $('c-v-u').textContent = f4(up);
+    $('c-v-l').textContent = limit.toFixed(1);
+    $('c-v-a').textContent = alpha.toFixed(3);
+    $('c-v-gv').textContent = f4(g);
+    $('c-v-uv').textContent = f4(u);
+    $('c-v-out').textContent = f4(out);
+    $('c-v-pg').innerHTML = pg ? 'true（直通）' : '<span class="c-danger">false（置零）</span>';
+    $('c-v-pu').innerHTML = pu ? 'true（直通）' : '<span class="c-danger">false（置零）</span>';
+  }
+  [rg, ru, rl, ra].forEach(r => r.addEventListener('input', render));
+  render();
+}
+
+/* ============================================================
+ * 启动
+ * ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  initCalc();
+  initCharts();
+  initChannels();
+  initFlow();
+  initBackward();
+  initPacked();
+  initClamped();
+});
+</script>
+<!-- lang-switch:start -->
+<a class="lang-switch" href="./swiglu%E4%BA%A4%E4%BA%92%E8%AE%B2%E8%A7%A3.en.html" hreflang="en" data-lang="en" aria-label="Switch to English">EN</a>
+<script src="./lang-switch.js"></script>
+<!-- lang-switch:end -->
+</body>
+</html>
